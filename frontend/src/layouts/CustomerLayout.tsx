@@ -10,6 +10,7 @@ export function CustomerLayout() {
         <div className="sidebar-brand">Customer Portal</div>
         <nav className="sidebar-nav" aria-label="menu customer">
           <NavLink to="/customer">Dashboard</NavLink>
+          <NavLink to="/customer/cart">Keranjang</NavLink>
           <NavLink to="/customer">Pesanan</NavLink>
           <NavLink to="/customer">Alamat</NavLink>
           <NavLink to="/customer">Pembayaran</NavLink>

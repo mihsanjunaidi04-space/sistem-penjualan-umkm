@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { AuthUser, LoginPayload, RegisterPayload } from '../types/auth'
 import { authService } from '../services/authService'
 
@@ -18,12 +18,19 @@ const STORAGE_KEYS = {
   user: 'umkm_user',
 }
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem(STORAGE_KEYS.token))
-  const [user, setUser] = useState<AuthUser | null>(() => {
+function readStoredUser(): AuthUser | null {
+  try {
     const value = localStorage.getItem(STORAGE_KEYS.user)
     return value ? (JSON.parse(value) as AuthUser) : null
-  })
+  } catch {
+    localStorage.removeItem(STORAGE_KEYS.user)
+    return null
+  }
+}
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem(STORAGE_KEYS.token))
+  const [user, setUser] = useState<AuthUser | null>(readStoredUser)
 
   const persistSession = useCallback((nextToken: string | null, nextUser: AuthUser | null) => {
     setToken(nextToken)
@@ -41,6 +48,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem(STORAGE_KEYS.user)
     }
   }, [])
+
+  useEffect(() => {
+    const clearUnauthorizedSession = () => persistSession(null, null)
+    window.addEventListener('auth:unauthorized', clearUnauthorizedSession)
+
+    if (token) {
+      void authService
+        .me()
+        .then((response) => persistSession(token, response.data.user))
+        .catch(() => persistSession(null, null))
+    }
+
+    return () => window.removeEventListener('auth:unauthorized', clearUnauthorizedSession)
+  }, [persistSession, token])
 
   const login = useCallback(async (payload: LoginPayload) => {
     const response = await authService.login(payload)

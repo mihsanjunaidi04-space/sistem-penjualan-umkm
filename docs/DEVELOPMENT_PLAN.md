@@ -83,6 +83,8 @@
 
 **Gate:** rollback, duplicate request, concurrent checkout, overselling tests.
 
+Reservasi kedaluwarsa diproses oleh `InventoryReservationExpiryJob`. Pada lingkungan tanpa scheduler, jalankan `bin/rails runner "InventoryReservationExpiryJob.perform_now"` secara berkala melalui scheduler deployment yang dipilih. Scheduler produksi belum ditetapkan.
+
 ### M7 — Payment
 - Payment instructions.
 - Private proof upload.

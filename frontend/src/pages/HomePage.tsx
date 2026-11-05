@@ -1,4 +1,5 @@
 import { useHealthCheck } from '../hooks/useHealthCheck'
+import { Link } from 'react-router-dom'
 
 export function HomePage() {
   const { data, loading, error, status } = useHealthCheck()
@@ -10,9 +11,9 @@ export function HomePage() {
           <p className="eyebrow">Platform ecommerce UMKM</p>
           <h1>Frontend foundation siap digunakan</h1>
           <p className="lead">
-            Struktur routing, layout, API client, dan desain sistem sudah disiapkan untuk tahap
-            pengembangan berikutnya.
+            Jelajahi katalog produk UMKM dengan informasi harga dan ketersediaan stok yang jelas.
           </p>
+          <Link className="home-cta" to="/catalog">Lihat katalog</Link>
         </div>
 
         <div className="status-card">

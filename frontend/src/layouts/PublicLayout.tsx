@@ -20,6 +20,7 @@ export function PublicLayout() {
             <NavLink to="/" end>
               Beranda
             </NavLink>
+            <NavLink to="/catalog">Katalog</NavLink>
             {isAuthenticated && user?.role === 'customer' ? (
               <NavLink to="/customer">Customer</NavLink>
             ) : null}

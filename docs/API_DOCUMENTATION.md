@@ -62,6 +62,7 @@ Gunakan server-side session dan HttpOnly cookie. Secure pada HTTPS, SameSite ses
 
 - GET `/products`
 - GET `/products/:slug`
+- GET `/products/:slug/images/:image_id`
 - GET `/categories`
 - GET `/categories/:slug`
 
@@ -69,7 +70,9 @@ Hanya produk/kategori aktif yang ditampilkan. Filter, sort, pagination, dan ukur
 
 ## 5. Admin catalog
 
+- GET `/admin/categories`
 - POST `/admin/products`
+- GET `/admin/products`
 - PATCH `/admin/products/:id`
 - POST `/admin/products/:id/images`
 - DELETE `/admin/products/:id/images/:image_id`
@@ -77,6 +80,8 @@ Hanya produk/kategori aktif yang ditampilkan. Filter, sort, pagination, dan ukur
 - PATCH `/admin/categories/:id`
 
 Penghapusan produk yang sudah memiliki histori transaksi harus mempertahankan histori; pertimbangkan nonaktifkan/soft delete.
+
+Upload gambar katalog menerima JPEG, PNG, atau WebP dengan ukuran maksimum 5 MB. File diberi storage key acak dan tidak menggunakan nama file dari client. Penyimpanan lokal digunakan pada tahap awal; object storage/CDN untuk production masih merupakan keputusan terbuka.
 
 ## 6. Customer profile and addresses
 
@@ -99,9 +104,15 @@ Customer hanya mengakses data miliknya.
 
 Quantity harus positif. Harga cart bukan harga final checkout.
 
+Cart hanya dapat diakses customer pemilik sesi. Produk harus aktif dan berada pada kategori aktif; backend memeriksa stok sebelum menambah atau mengubah quantity.
+
 ## 8. Checkout
 
 - POST `/checkout`
+- GET `/shipping-methods`
+- GET `/customer/addresses`
+- GET `/customer/orders`
+- GET `/customer/orders/:id`
 
 Header:
 ```http
@@ -122,6 +133,8 @@ Backend:
 9. Tetapkan deadline 12 jam.
 10. Simpan idempotency result.
 11. Commit atomik.
+
+Checkout membuat payment `pending` sebagai placeholder transaksi M6. Upload bukti dan verifikasi pembayaran adalah scope M7.
 
 Key sama dan payload sama mengembalikan hasil yang sama. Key sama dengan payload berbeda menghasilkan conflict. Concurrency test wajib.
 

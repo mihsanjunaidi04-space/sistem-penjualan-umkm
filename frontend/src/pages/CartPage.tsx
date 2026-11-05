@@ -1,0 +1,16 @@
+import { useEffect, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { checkoutService } from '../services/checkoutService'
+import type { CartItem } from '../types/checkout'
+
+const currency = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 })
+
+export function CartPage() {
+  const [items, setItems] = useState<CartItem[]>([]); const [subtotal, setSubtotal] = useState(0); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const navigate = useNavigate()
+  const load = async () => { setLoading(true); try { const response = await checkoutService.getCart(); setItems(response.data.items); setSubtotal(response.data.subtotal) } catch (reason) { setError(reason instanceof Error ? reason.message : 'Keranjang gagal dimuat.') } finally { setLoading(false) } }
+  useEffect(() => { void load() }, [])
+  const update = async (item: CartItem, quantity: number) => { if (quantity < 1) return; setError(''); try { const response = await checkoutService.updateItem(item.id, quantity); setItems(response.data.items); setSubtotal(response.data.subtotal) } catch (reason) { setError(reason instanceof Error ? reason.message : 'Kuantitas gagal diubah.') } }
+  const remove = async (id: number) => { setError(''); try { const response = await checkoutService.removeItem(id); setItems(response.data.items); setSubtotal(response.data.subtotal) } catch (reason) { setError(reason instanceof Error ? reason.message : 'Item gagal dihapus.') } }
+  if (loading) return <div className="container"><div className="panel-card state-card">Memuat keranjang...</div></div>
+  return <div className="container transaction-page"><div className="section-heading"><div><p className="eyebrow">Customer</p><h1>Keranjang belanja</h1></div></div>{error ? <div className="form-error">{error}</div> : null}{items.length === 0 ? <div className="panel-card state-card"><h2>Keranjang masih kosong</h2><p>Tambahkan produk dari katalog untuk melanjutkan.</p><Link className="home-cta" to="/catalog">Kembali ke katalog</Link></div> : <div className="transaction-layout"><section className="panel-card cart-list">{items.map((item) => <div className="cart-item" key={item.id}><div><h3>{item.product.name}</h3><p>{currency.format(item.product.price)} · {item.product.sku}</p>{!item.available ? <span className="stock-text stock-text--empty">Stok tidak cukup atau produk tidak aktif</span> : null}</div><div className="cart-item__actions"><input aria-label={`Kuantitas ${item.product.name}`} min="1" max={item.product.available_stock} type="number" value={item.quantity} onChange={(event) => void update(item, Number(event.target.value))} /><strong>{currency.format(item.subtotal)}</strong><button type="button" className="button-link" onClick={() => void remove(item.id)}>Hapus</button></div></div>)}</section><aside className="panel-card summary-card"><p className="eyebrow">Ringkasan</p><div className="summary-row"><span>Subtotal</span><strong>{currency.format(subtotal)}</strong></div><p className="summary-note">Ongkir dihitung berdasarkan metode pengiriman saat checkout.</p><button type="button" disabled={items.some((item) => !item.available)} onClick={() => navigate('/customer/checkout')}>Lanjut ke checkout</button></aside></div>}</div>
+}

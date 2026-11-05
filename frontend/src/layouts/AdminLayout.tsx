@@ -10,6 +10,7 @@ export function AdminLayout() {
         <div className="sidebar-brand">Admin Panel</div>
         <nav className="sidebar-nav" aria-label="menu admin">
           <NavLink to="/admin">Dashboard</NavLink>
+          <NavLink to="/admin/catalog">Katalog</NavLink>
           <NavLink to="/admin">Produk</NavLink>
           <NavLink to="/admin">Pesanan</NavLink>
           <NavLink to="/admin">Pembayaran</NavLink>

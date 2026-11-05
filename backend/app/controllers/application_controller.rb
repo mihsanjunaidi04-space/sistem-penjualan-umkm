@@ -11,6 +11,7 @@ class ApplicationController < ActionController::API
 
     claims = JwtService.decode(token)
     return render_error(:unauthorized, 'INVALID_TOKEN', 'Token tidak valid atau kedaluwarsa.') if claims.blank?
+    return render_error(:unauthorized, 'INVALID_TOKEN', 'Token tidak valid atau kedaluwarsa.') if JwtService.revoked?(claims)
 
     @current_user = User.find_by(id: claims[:user_id])
     return render_error(:unauthorized, 'USER_NOT_FOUND', 'Pengguna tidak ditemukan.') if @current_user.blank?
@@ -58,5 +59,9 @@ class ApplicationController < ActionController::API
 
     match = authorization_header.match(/Bearer\s+(.+)/)
     match ? match[1] : nil
+  end
+
+  def authenticated_token
+    bearer_token
   end
 end

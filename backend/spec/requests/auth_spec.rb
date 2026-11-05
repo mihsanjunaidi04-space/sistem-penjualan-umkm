@@ -24,6 +24,28 @@ RSpec.describe 'Authentication API', type: :request do
     expect(json['data']['token']).to be_present
   end
 
+  it 'rejects invalid registration data and duplicate email addresses' do
+    post '/auth/register', params: {
+      name: '',
+      email: 'invalid-email',
+      password: 'short',
+      password_confirmation: 'different'
+    }, as: :json
+
+    expect(response).to have_http_status(:unprocessable_entity)
+    expect(JSON.parse(response.body)['error']['code']).to eq('VALIDATION_ERROR')
+
+    User.create!(name: 'Existing User', email: 'existing@example.com', password: 'password123', role: 'customer')
+    post '/auth/register', params: {
+      name: 'Duplicate User',
+      email: 'existing@example.com',
+      password: 'password123',
+      password_confirmation: 'password123'
+    }, as: :json
+
+    expect(response).to have_http_status(:unprocessable_entity)
+  end
+
   it 'logs in and returns the current user identity' do
     user = User.create!(name: 'Bob Customer', email: 'bob@example.com', password: 'password123', role: 'customer')
 
@@ -43,12 +65,46 @@ RSpec.describe 'Authentication API', type: :request do
     expect(me_json['data']['user']['id']).to eq(user.id)
   end
 
-  it 'rejects invalid or expired tokens' do
+  it 'rejects invalid login credentials' do
+    User.create!(name: 'Login User', email: 'login@example.com', password: 'password123', role: 'customer')
+
+    post '/auth/login', params: { email: 'login@example.com', password: 'wrong-password' }, as: :json
+
+    expect(response).to have_http_status(:unauthorized)
+    expect(JSON.parse(response.body)['error']['code']).to eq('INVALID_CREDENTIALS')
+  end
+
+  it 'rejects missing, invalid, and expired tokens' do
+    get '/auth/me'
+    expect(response).to have_http_status(:unauthorized)
+    expect(JSON.parse(response.body)['error']['code']).to eq('AUTHENTICATION_REQUIRED')
+
     get '/auth/me', headers: { 'Authorization' => 'Bearer invalid.token.value' }
     expect(response).to have_http_status(:unauthorized)
 
     invalid_body = JSON.parse(response.body)
     expect(invalid_body['error']['code']).to eq('INVALID_TOKEN')
+
+    user = User.create!(name: 'Expired User', email: 'expired@example.com', password: 'password123', role: 'customer')
+    expired_token = JwtService.encode({ user_id: user.id }, 1.minute.ago.to_i)
+    get '/auth/me', headers: { 'Authorization' => "Bearer #{expired_token}" }
+    expect(response).to have_http_status(:unauthorized)
+    expect(JSON.parse(response.body)['error']['code']).to eq('INVALID_TOKEN')
+  end
+
+  it 'requires authentication for logout and revokes a logged-out token' do
+    user = User.create!(name: 'Logout User', email: 'logout@example.com', password: 'password123', role: 'customer')
+    token = JwtService.encode({ user_id: user.id, role: user.role })
+
+    delete '/auth/logout'
+    expect(response).to have_http_status(:unauthorized)
+
+    delete '/auth/logout', headers: { 'Authorization' => "Bearer #{token}" }
+    expect(response).to have_http_status(:ok)
+
+    get '/auth/me', headers: { 'Authorization' => "Bearer #{token}" }
+    expect(response).to have_http_status(:unauthorized)
+    expect(JSON.parse(response.body)['error']['code']).to eq('INVALID_TOKEN')
   end
 
   it 'enforces admin and customer access rules' do
@@ -63,5 +119,13 @@ RSpec.describe 'Authentication API', type: :request do
 
     get '/auth/admin', headers: auth_headers(admin)
     expect(response).to have_http_status(:ok)
+  end
+
+  it 'does not trust a token role claim over the database user role' do
+    customer = User.create!(name: 'Role User', email: 'role-user@example.com', password: 'password123', role: 'customer')
+
+    get '/auth/admin', headers: { 'Authorization' => "Bearer #{JwtService.encode({ user_id: customer.id, role: 'admin' })}" }
+
+    expect(response).to have_http_status(:forbidden)
   end
 end

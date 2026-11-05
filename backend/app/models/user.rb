@@ -7,6 +7,7 @@ class User < ApplicationRecord
   has_many :wishlists, dependent: :restrict_with_error
   has_many :reviews, dependent: :restrict_with_error
   has_many :password_reset_tokens, dependent: :restrict_with_error
+  has_many :idempotency_keys, dependent: :restrict_with_error
 
   has_secure_password
 

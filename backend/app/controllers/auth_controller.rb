@@ -37,10 +37,16 @@ class AuthController < ApplicationController
   end
 
   def logout
+    authenticate_user!
+    return if performed?
+
+    claims = JwtService.decode(authenticated_token)
+    JwtService.revoke(authenticated_token, claims) if claims
+
     render json: {
       success: true,
       data: {},
-      message: 'Logout berhasil. Token client sudah dihapus.'
+      message: 'Logout berhasil. Token sudah dicabut.'
     }, status: :ok
   end
 

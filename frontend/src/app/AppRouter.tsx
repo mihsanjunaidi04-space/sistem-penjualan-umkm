@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom'
 import { ProtectedRoute } from '../components/ProtectedRoute'
 import { AdminLayout } from '../layouts/AdminLayout'
 import { CustomerLayout } from '../layouts/CustomerLayout'
@@ -9,6 +9,10 @@ import { HomePage } from '../pages/HomePage'
 import { LoginPage } from '../pages/LoginPage'
 import { NotFoundPage } from '../pages/NotFoundPage'
 import { RegisterPage } from '../pages/RegisterPage'
+import { AdminCatalogPage } from '../pages/AdminCatalogPage'
+import { CatalogPage, ProductDetailPage } from '../pages/CatalogPage'
+import { CartPage } from '../pages/CartPage'
+import { CheckoutPage } from '../pages/CheckoutPage'
 
 export function AppRouter() {
   return (
@@ -16,6 +20,8 @@ export function AppRouter() {
       <Routes>
         <Route element={<PublicLayout />}>
           <Route path="/" element={<HomePage />} />
+          <Route path="/catalog" element={<CatalogPage />} />
+          <Route path="/products/:slug" element={<ProductDetailRoute />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
         </Route>
@@ -29,6 +35,8 @@ export function AppRouter() {
           }
         >
           <Route index element={<CustomerDashboardPage />} />
+          <Route path="cart" element={<CartPage />} />
+          <Route path="checkout" element={<CheckoutPage />} />
         </Route>
 
         <Route
@@ -40,6 +48,7 @@ export function AppRouter() {
           }
         >
           <Route index element={<AdminDashboardPage />} />
+          <Route path="catalog" element={<AdminCatalogPage />} />
         </Route>
 
         <Route path="/redirect" element={<Navigate to="/" replace />} />
@@ -47,4 +56,9 @@ export function AppRouter() {
       </Routes>
     </BrowserRouter>
   )
+}
+
+function ProductDetailRoute() {
+  const { slug } = useParams()
+  return <ProductDetailPage slug={slug ?? ''} />
 }

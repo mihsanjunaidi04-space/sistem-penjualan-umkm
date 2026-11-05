@@ -10,4 +10,5 @@ class Order < ApplicationRecord
   validates :order_number, :user, :shipping_method, :payment_deadline_at, presence: true
   validates :status, inclusion: { in: %w[awaiting_payment processing shipped completed cancelled] }
   validates :subtotal, :discount_amount, :shipping_cost, :total_amount, numericality: { greater_than_or_equal_to: 0 }
+  validates :payment_deadline_at, comparison: { greater_than: :created_at }, on: :update, if: :created_at?
 end
