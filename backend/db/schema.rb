@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026110600001) do
+ActiveRecord::Schema[8.1].define(version: 2026110600002) do
   create_table "addresses", force: :cascade do |t|
     t.bigint "user_id", null: false
     t.string "recipient_name", limit: 150, null: false
@@ -141,6 +141,15 @@ ActiveRecord::Schema[8.1].define(version: 2026110600001) do
     t.index ["status"], name: "index_inventory_reservations_on_status"
     t.check_constraint "quantity > 0", name: "inventory_reservations_quantity_positive"
     t.check_constraint "status IN ('reserved', 'converted', 'released')", name: "inventory_reservations_status_check"
+  end
+
+  create_table "jwt_revocations", force: :cascade do |t|
+    t.string "jti", null: false
+    t.datetime "expires_at", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["expires_at"], name: "index_jwt_revocations_on_expires_at"
+    t.index ["jti"], name: "index_jwt_revocations_on_jti", unique: true
   end
 
   create_table "notifications", force: :cascade do |t|

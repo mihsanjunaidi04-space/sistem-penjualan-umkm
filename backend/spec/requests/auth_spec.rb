@@ -107,6 +107,37 @@ RSpec.describe 'Authentication API', type: :request do
     expect(JSON.parse(response.body)['error']['code']).to eq('INVALID_TOKEN')
   end
 
+  it 'keeps a revocation after the cache is initialized again' do
+    user = User.create!(name: 'Persistent Logout User', email: 'persistent-logout@example.com', password: 'password123', role: 'customer')
+    token = JwtService.encode({ user_id: user.id, role: user.role })
+    claims = JwtService.decode(token)
+
+    JwtService.revoke(token, claims)
+    Rails.cache = ActiveSupport::Cache::MemoryStore.new
+
+    expect(JwtService.revoked?(claims)).to be(true)
+  end
+
+  it 'fails closed when the revocation store cannot be read' do
+    user = User.create!(name: 'Unavailable Store User', email: 'unavailable-store@example.com', password: 'password123', role: 'customer')
+    token = JwtService.encode({ user_id: user.id, role: user.role })
+    claims = JwtService.decode(token)
+
+    allow(JwtRevocation).to receive(:where).and_raise(ActiveRecord::ConnectionNotEstablished)
+
+    expect(JwtService.revoked?(claims)).to be(true)
+  end
+
+  it 'does not silently accept a token when revocation cannot be written' do
+    user = User.create!(name: 'Write Failure User', email: 'write-failure@example.com', password: 'password123', role: 'customer')
+    token = JwtService.encode({ user_id: user.id, role: user.role })
+    claims = JwtService.decode(token)
+
+    allow(JwtRevocation).to receive(:create!).and_raise(ActiveRecord::ConnectionNotEstablished)
+
+    expect { JwtService.revoke(token, claims) }.to raise_error(ActiveRecord::ConnectionNotEstablished)
+  end
+
   it 'enforces admin and customer access rules' do
     customer = User.create!(name: 'Customer Access', email: 'customer-access@example.com', password: 'password123', role: 'customer')
     admin = User.create!(name: 'Admin Access', email: 'admin-access@example.com', password: 'password123', role: 'admin')

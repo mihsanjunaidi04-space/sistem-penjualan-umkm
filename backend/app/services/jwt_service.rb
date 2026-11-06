@@ -16,14 +16,21 @@ class JwtService
   end
 
   def self.revoke(token, claims)
-    return if claims[:jti].blank?
+    return if claims[:jti].blank? || claims[:exp].blank?
 
-    ttl = [ claims[:exp].to_i - Time.current.to_i, 1 ].max
-    Rails.cache.write(revocation_key(claims[:jti]), true, expires_in: ttl.seconds)
+    expires_at = Time.at(claims[:exp].to_i).utc
+    return if expires_at <= Time.current
+
+    JwtRevocation.create!(jti: claims[:jti], expires_at: expires_at)
   end
 
   def self.revoked?(claims)
-    claims[:jti].present? && Rails.cache.exist?(revocation_key(claims[:jti]))
+    return false if claims[:jti].blank? || claims[:exp].blank?
+
+    JwtRevocation.where(jti: claims[:jti]).where("expires_at > ?", Time.current).exists?
+  rescue ActiveRecord::ActiveRecordError
+    # A storage outage must not turn a revoked token into an accepted token.
+    true
   end
 
   def self.revocation_key(jti)
