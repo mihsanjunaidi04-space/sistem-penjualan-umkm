@@ -2,7 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../app/AuthProvider'
 
 export function CustomerLayout() {
-  const { user, logout } = useAuth()
+  const { user, logout, logoutError } = useAuth()
 
   return (
     <div className="app-shell app-shell--sidebar">
@@ -30,6 +30,7 @@ export function CustomerLayout() {
         </header>
 
         <main className="panel-content">
+          {logoutError ? <div className="form-error" role="alert">{logoutError}</div> : null}
           <Outlet />
         </main>
       </div>

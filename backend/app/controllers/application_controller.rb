@@ -5,13 +5,13 @@ class ApplicationController < ActionController::API
     @current_user
   end
 
-  def authenticate_user!
+  def authenticate_user!(check_revocation: true)
     token = bearer_token
     return render_error(:unauthorized, "AUTHENTICATION_REQUIRED", "Token autentikasi diperlukan.") if token.blank?
 
     claims = JwtService.decode(token)
     return render_error(:unauthorized, "INVALID_TOKEN", "Token tidak valid atau kedaluwarsa.") if claims.blank?
-    return render_error(:unauthorized, "INVALID_TOKEN", "Token tidak valid atau kedaluwarsa.") if JwtService.revoked?(claims)
+    return render_error(:unauthorized, "INVALID_TOKEN", "Token tidak valid atau kedaluwarsa.") if check_revocation && JwtService.revoked?(claims)
 
     @current_user = User.find_by(id: claims[:user_id])
     return render_error(:unauthorized, "USER_NOT_FOUND", "Pengguna tidak ditemukan.") if @current_user.blank?
