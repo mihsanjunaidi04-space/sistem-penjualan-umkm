@@ -94,13 +94,14 @@ Reservasi kedaluwarsa diproses oleh `InventoryReservationExpiryJob`. Pada lingku
 
 **Gate:** private file access, payment state machine, double approval prevention, stock conversion.
 
-### M8 — Orders, cancellation, shipping, refund
+### M8 — Orders, cancellation, shipping
 - Customer order history/detail.
 - Cancellation request.
 - Admin approval/rejection.
-- Manual refund record.
 - Shipment creation and status.
 - Auto-completion job.
+
+Refund remains outside M8; decisions D2 and D5 are deferred.
 
 **Gate:** transition tests, refund limit, stock consistency, job idempotency.
 

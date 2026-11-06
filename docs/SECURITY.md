@@ -104,7 +104,16 @@ Jangan mengandalkan route guard, hidden button, UUID, atau user ID dari browser 
 - Terapkan foreign key, unique/check constraint, dan transaksi.
 - Frontend validation hanya untuk UX.
 
-## 9. File upload
+## 9. M8 controls
+
+- Customer cancellation uses ownership checks; admin cancellation and shipment actions require admin authorization.
+- Payment approval and cancellation lock the order and payment in the same order to prevent both actions succeeding concurrently.
+- Pending cancellation blocks proof resubmission and payment approval in the backend.
+- Shipment transitions are validated server-side and do not accept arbitrary frontend status values.
+- Reservation release, order cancellation, product counters, inventory movement, and audit log are atomic.
+- Auto-completion only processes shipped orders at least seven days old and is safe to repeat.
+
+## 10. File upload
 
 Untuk bukti transfer:
 - Private storage.
@@ -216,3 +225,10 @@ Fitur sensitif memerlukan authentication, authorization, ownership, validation, 
 ## 17. Referensi
 
 Gunakan versi resmi terkini OWASP Top 10, OWASP API Security Top 10, OWASP ASVS, dokumentasi keamanan Rails, dokumentasi SQLite, serta ketentuan perlindungan data pribadi yang berlaku. Referensi bukan bukti sertifikasi atau kepatuhan otomatis.
+# M7 controls
+
+- Upload memeriksa ukuran, ekstensi yang diizinkan, dan MIME berdasarkan isi file menggunakan Marcel.
+- Storage key memakai random token, bukan nama file asli; file disimpan di `storage/private/payment_proofs`.
+- Customer dan admin melakukan ownership/role authorization di backend.
+- Approval mengunci payment, order, reservation, dan product dalam satu transaksi; state check mencegah double approval.
+- Approval mencatat `PaymentVerificationEvent`, `AuditLog`, konversi reservation, pengurangan stok, dan inventory movement secara atomik.

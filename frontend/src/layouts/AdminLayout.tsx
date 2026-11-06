@@ -12,8 +12,9 @@ export function AdminLayout() {
           <NavLink to="/admin">Dashboard</NavLink>
           <NavLink to="/admin/catalog">Katalog</NavLink>
           <NavLink to="/admin">Produk</NavLink>
-          <NavLink to="/admin">Pesanan</NavLink>
-          <NavLink to="/admin">Pembayaran</NavLink>
+          <NavLink to="/admin/orders">Pesanan</NavLink>
+          <NavLink to="/admin/payments">Pembayaran</NavLink>
+          <NavLink to="/admin/cancellations">Pembatalan</NavLink>
           <NavLink to="/admin">Laporan</NavLink>
           <NavLink to="/">Kembali ke publik</NavLink>
           <button type="button" className="sidebar-logout sidebar-logout--admin" onClick={() => void logout()}>

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026110500027) do
+ActiveRecord::Schema[8.1].define(version: 2026110600001) do
   create_table "addresses", force: :cascade do |t|
     t.bigint "user_id", null: false
     t.string "recipient_name", limit: 150, null: false
@@ -232,6 +232,19 @@ ActiveRecord::Schema[8.1].define(version: 2026110500027) do
     t.check_constraint "status IN ('submitted', 'approved', 'rejected')", name: "payment_proofs_status_check"
   end
 
+  create_table "payment_verification_events", force: :cascade do |t|
+    t.bigint "payment_id", null: false
+    t.bigint "payment_proof_id"
+    t.bigint "admin_id", null: false
+    t.string "decision", limit: 20, null: false
+    t.text "reason"
+    t.datetime "created_at", null: false
+    t.index ["admin_id"], name: "index_payment_verification_events_on_admin_id"
+    t.index ["payment_id"], name: "index_payment_verification_events_on_payment_id"
+    t.index ["payment_proof_id"], name: "index_payment_verification_events_on_payment_proof_id"
+    t.check_constraint "decision IN ('approved', 'rejected')", name: "payment_verification_events_decision_check"
+  end
+
   create_table "payments", force: :cascade do |t|
     t.bigint "order_id", null: false
     t.string "payment_method", limit: 40, null: false
@@ -449,6 +462,9 @@ ActiveRecord::Schema[8.1].define(version: 2026110500027) do
   add_foreign_key "orders", "users", on_delete: :restrict
   add_foreign_key "password_reset_tokens", "users", on_delete: :restrict
   add_foreign_key "payment_proofs", "payments", on_delete: :restrict
+  add_foreign_key "payment_verification_events", "payment_proofs", on_delete: :restrict
+  add_foreign_key "payment_verification_events", "payments", on_delete: :restrict
+  add_foreign_key "payment_verification_events", "users", column: "admin_id", on_delete: :restrict
   add_foreign_key "payments", "orders", on_delete: :restrict
   add_foreign_key "payments", "users", column: "verified_by", on_delete: :restrict
   add_foreign_key "product_images", "products", on_delete: :restrict

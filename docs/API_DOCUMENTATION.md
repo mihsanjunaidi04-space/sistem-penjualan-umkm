@@ -337,6 +337,41 @@ Tambahkan batas ukuran payload, pagination, dan resource consumption.
 - State transition ilegal ditolak.
 - Scheduled job aman diulang.
 
-## 23. Catatan kontrak
+## 23. M8 final implementation contract
+
+Implemented M8 routes are:
+
+- `GET /admin/orders` with optional `status` and `q` filters
+- `GET /admin/orders/:id`
+- `POST /admin/orders/:order_id/shipments`
+- `PATCH /admin/shipments/:id/pack`
+- `PATCH /admin/shipments/:id/ship` with required `tracking_number`
+- `PATCH /admin/shipments/:id/deliver`
+- `GET /admin/cancellation-requests`
+- `POST /admin/cancellation-requests/:id/approve`
+- `POST /admin/cancellation-requests/:id/reject` with required `admin_note`
+- `GET/POST /customer/orders/:order_id/cancellation-requests`
+
+Cancellation is eligible only for an `awaiting_payment` order whose payment is `pending`, `rejected`, or `waiting_verification`. A pending cancellation blocks payment proof resubmission and payment approval. Refund is not performed by these endpoints.
+
+## 24. Catatan kontrak
 
 Endpoint di atas merupakan kontrak rancangan. Sebelum implementasi, cocokkan dengan migration, model, authorization policy, konfigurasi session/CSRF Rails, dan kebutuhan UI. Perubahan endpoint harus memperbarui dokumen ini dan test terkait.
+# M7 — Payment transfer manual
+
+Endpoint customer:
+
+- `GET /customer/orders/:id` mengembalikan jumlah, deadline, status payment, riwayat bukti, dan `payment_instructions` dari `store_settings`.
+- `POST /customer/orders/:order_id/payment-proof` menerima multipart field `proof`. Hanya order milik customer, status `awaiting_payment`, dan payment `pending`/`rejected` sebelum deadline yang diterima.
+- `GET /customer/orders/:order_id/payment-proofs/:proof_id` mengirim file secara privat setelah ownership check.
+
+Endpoint admin (semua memerlukan role `admin`):
+
+- `GET /admin/payments?status=waiting_verification`
+- `GET /admin/payments/:id`
+- `GET /admin/payments/:id/proofs/:proof_id`
+- `POST /admin/payments/:id/approve`
+- `POST /admin/payments/:id/reject` dengan JSON `{ "reason": "..." }`
+- `GET/PATCH /admin/payment-settings` dengan key `bank_name`, `bank_account_name`, `bank_account_number`, dan `bank_transfer_instructions`.
+
+Bukti transfer tidak pernah dikembalikan sebagai URL publik permanen. URL admin hanya endpoint terotorisasi dan file berada di private disk.

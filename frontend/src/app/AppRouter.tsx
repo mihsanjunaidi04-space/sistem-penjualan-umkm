@@ -13,6 +13,11 @@ import { AdminCatalogPage } from '../pages/AdminCatalogPage'
 import { CatalogPage, ProductDetailPage } from '../pages/CatalogPage'
 import { CartPage } from '../pages/CartPage'
 import { CheckoutPage } from '../pages/CheckoutPage'
+import { CustomerOrdersPage } from '../pages/CustomerOrdersPage'
+import { CustomerPaymentPage } from '../pages/CustomerPaymentPage'
+import { AdminPaymentsPage } from '../pages/AdminPaymentsPage'
+import { AdminOrdersPage } from '../pages/AdminOrdersPage'
+import { AdminCancellationsPage } from '../pages/AdminCancellationsPage'
 
 export function AppRouter() {
   return (
@@ -37,6 +42,8 @@ export function AppRouter() {
           <Route index element={<CustomerDashboardPage />} />
           <Route path="cart" element={<CartPage />} />
           <Route path="checkout" element={<CheckoutPage />} />
+          <Route path="orders" element={<CustomerOrdersPage />} />
+          <Route path="orders/:id/payment" element={<CustomerPaymentPage />} />
         </Route>
 
         <Route
@@ -49,6 +56,9 @@ export function AppRouter() {
         >
           <Route index element={<AdminDashboardPage />} />
           <Route path="catalog" element={<AdminCatalogPage />} />
+          <Route path="payments" element={<AdminPaymentsPage />} />
+          <Route path="orders" element={<AdminOrdersPage />} />
+          <Route path="cancellations" element={<AdminCancellationsPage />} />
         </Route>
 
         <Route path="/redirect" element={<Navigate to="/" replace />} />

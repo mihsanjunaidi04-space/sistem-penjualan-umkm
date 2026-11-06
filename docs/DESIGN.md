@@ -230,7 +230,14 @@ Jangan memaksakan semua folder dibuat sekaligus. Tambahkan struktur ketika fitur
 - Lucide untuk icon bila diperlukan.
 - Styling mengikuti design token; pilih pendekatan CSS/Tailwind yang sudah ada dan jangan mencampur banyak sistem tanpa alasan.
 
-## 9. Authentication UX and security
+## 9. M8 UI decisions
+
+- Customer order detail displays payment, shipment status, tracking number, and cancellation status.
+- Customer sees the cancellation action only for eligible `awaiting_payment` orders without an active request.
+- Admin has order/shipment and cancellation request views with status-aware actions.
+- Tracking is displayed as stored data; the UI does not claim automatic courier tracking.
+
+## 10. Authentication UX and security
 
 - Gunakan server-side session dengan HttpOnly cookie.
 - Jangan menyimpan token jangka panjang di localStorage.

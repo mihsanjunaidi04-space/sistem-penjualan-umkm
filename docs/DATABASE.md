@@ -239,6 +239,10 @@ Semua FK harus memiliki kebijakan delete yang mempertahankan histori transaksi. 
 
 ## 6. Aturan transaksi
 
+### 6.1 Riwayat verifikasi pembayaran
+
+M7 menambahkan tabel `payment_verification_events` yang menyimpan payment, bukti yang diputuskan, admin, keputusan (`approved`/`rejected`), alasan, dan waktu. Field `payments.verified_by`, `verified_at`, serta `rejection_reason` tetap menjadi snapshot keputusan terakhir; event menjadi histori append-only.
+
 ### Checkout
 Dalam transaksi:
 1. Validasi user, alamat, cart, produk aktif.
@@ -338,7 +342,11 @@ Index:
 - Data pribadi ditangani sesuai ketentuan perlindungan data yang berlaku.
 - SQLite bukan database multi-instance; evaluasi PostgreSQL bila kebutuhan meningkat.
 
-## 9. Rails implementation notes
+## 9. M8 schema decision
+
+M8 uses the existing `orders`, `shipments`, `shipping_methods`, `cancellation_requests`, `inventory_reservations`, `inventory_movements`, `products`, and `audit_logs` tables. No migration is required. Audit logs provide the baseline shipment and cancellation history; no shipment-events table is added.
+
+## 10. Rails implementation notes
 
 - Gunakan migrations.
 - Tambahkan foreign key, unique index, dan check constraint pada database.

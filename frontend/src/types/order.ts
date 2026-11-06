@@ -1,0 +1,4 @@
+export interface AdminOrder { id: number; order_number: string; status: string; customer_name: string; total_amount: number; payment_status: string | null; shipment: { id: number; status: string; tracking_number: string | null; shipped_at: string | null; delivered_at: string | null } | null; cancellation_requests: Array<{ id: number; status: string; reason: string; admin_note: string | null }> }
+export interface AdminOrdersResponse { success: boolean; data: { orders: AdminOrder[] }; message: string }
+export interface CancellationRequest { id: number; order_id: number; order_number?: string; customer_name?: string; reason: string; status: string; admin_note: string | null; reviewed_at?: string | null; created_at: string }
+export interface CancellationResponse { success: boolean; data: { cancellation_requests: CancellationRequest[] }; message: string }

@@ -11,7 +11,7 @@ export function CustomerLayout() {
         <nav className="sidebar-nav" aria-label="menu customer">
           <NavLink to="/customer">Dashboard</NavLink>
           <NavLink to="/customer/cart">Keranjang</NavLink>
-          <NavLink to="/customer">Pesanan</NavLink>
+          <NavLink to="/customer/orders">Pesanan</NavLink>
           <NavLink to="/customer">Alamat</NavLink>
           <NavLink to="/customer">Pembayaran</NavLink>
           <NavLink to="/">Kembali ke publik</NavLink>
