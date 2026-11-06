@@ -3,8 +3,8 @@ class ErrorsController < ApplicationController
     render json: {
       success: false,
       error: {
-        code: 'NOT_FOUND',
-        message: 'Endpoint not found'
+        code: "NOT_FOUND",
+        message: "Endpoint not found"
       }
     }, status: :not_found
   end

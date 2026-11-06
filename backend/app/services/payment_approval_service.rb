@@ -29,7 +29,7 @@ class PaymentApprovalService
       reservations.each do |reservation|
         product = products.fetch(reservation.product_id)
         before = product.stock_on_hand
-        Product.where(id: product.id).update_all(["stock_on_hand = stock_on_hand - ?, reserved_stock = reserved_stock - ?, updated_at = ?", reservation.quantity, reservation.quantity, now])
+        Product.where(id: product.id).update_all([ "stock_on_hand = stock_on_hand - ?, reserved_stock = reserved_stock - ?, updated_at = ?", reservation.quantity, reservation.quantity, now ])
         product.reload
         reservation.update!(status: "converted", converted_at: now)
         InventoryMovement.create!(product: product, order: order, movement_type: "stock_out", quantity: -reservation.quantity, stock_before: before, stock_after: product.stock_on_hand, reference: order.order_number, notes: "Pembayaran disetujui dan reservasi dikonversi", created_by: admin)

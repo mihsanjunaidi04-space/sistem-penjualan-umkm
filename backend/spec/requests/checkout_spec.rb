@@ -175,5 +175,22 @@ RSpec.describe 'Cart and checkout API', type: :request do
       expect(second_reservation.reload.status).to eq('reserved')
       expect(second_product.reload.reserved_stock).to eq(1)
     end
+
+    it 'does not release more reserved stock than the product has' do
+      owner = user
+      product = product_record(category_record, stock_on_hand: 3)
+      address = address_for(owner)
+      add_to_cart(owner, product, 1)
+      post '/checkout', params: { address_id: address.id, shipping_method_id: shipping_method.id }, headers: auth_headers(owner).merge('Idempotency-Key' => SecureRandom.uuid), as: :json
+      reservation = Order.last.inventory_reservations.first
+      reservation.update!(expires_at: 1.minute.ago)
+      product.update_columns(reserved_stock: 0)
+
+      InventoryReservationExpiryService.call
+
+      expect(reservation.reload.status).to eq('reserved')
+      expect(product.reload.reserved_stock).to eq(0)
+      expect(reservation.order.reload.status).to eq('awaiting_payment')
+    end
   end
 end

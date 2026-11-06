@@ -12,7 +12,7 @@ class CreateIdempotencyKeys < ActiveRecord::Migration[8.1]
       t.timestamps null: false
     end
     add_index :idempotency_keys, :user_id
-    add_index :idempotency_keys, [:user_id, :key], unique: true
+    add_index :idempotency_keys, [ :user_id, :key ], unique: true
     add_index :idempotency_keys, :expires_at
     add_foreign_key :idempotency_keys, :users, on_delete: :restrict
     add_check_constraint :idempotency_keys, 'response_status >= 100', name: 'idempotency_keys_response_status_minimum'

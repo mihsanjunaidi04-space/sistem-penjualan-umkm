@@ -17,10 +17,10 @@ class User < ApplicationRecord
   validates :password, length: { minimum: 8 }, if: -> { password.present? }
 
   def admin?
-    role.to_s == 'admin'
+    role.to_s == "admin"
   end
 
   def customer?
-    role.to_s == 'customer'
+    role.to_s == "customer"
   end
 end

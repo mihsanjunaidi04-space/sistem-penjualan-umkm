@@ -11,7 +11,7 @@ RSpec.describe CheckoutService do
       address = Address.create!(user: user, recipient_name: 'Concurrent Recipient', phone: '08123456789', address_line: 'Jalan Concurrent', province: 'Jawa Barat', city: 'Bandung', district: 'Coblong', postal_code: '40132')
       cart = Cart.create!(user: user)
       CartItem.create!(cart: cart, product: product, quantity: 1)
-      [user, address]
+      [ user, address ]
     end
 
     results = Queue.new

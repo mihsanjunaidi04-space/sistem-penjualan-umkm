@@ -1,7 +1,7 @@
 class CategoriesController < ApplicationController
   def index
     categories = Category.where(is_active: true).order(:name)
-    render json: { success: true, data: { categories: categories.map { |category| serialize_category(category) } }, message: 'Daftar kategori berhasil diambil.' }
+    render json: { success: true, data: { categories: categories.map { |category| serialize_category(category) } }, message: "Daftar kategori berhasil diambil." }
   end
 
   def show
@@ -13,10 +13,10 @@ class CategoriesController < ApplicationController
         category: serialize_category(category),
         products: products.map { |product| ProductsController.serialize_product(product, request) }
       },
-      message: 'Detail kategori berhasil diambil.'
+      message: "Detail kategori berhasil diambil."
     }
   rescue ActiveRecord::RecordNotFound
-    render_error(:not_found, 'CATEGORY_NOT_FOUND', 'Kategori tidak ditemukan.')
+    render_error(:not_found, "CATEGORY_NOT_FOUND", "Kategori tidak ditemukan.")
   end
 
   private

@@ -68,7 +68,7 @@ class CancellationService
       product = products[reservation.product_id]
       raise Error.new("RESERVATION_INVALID", "Reservasi stok tidak konsisten.") unless product && product.reserved_stock >= reservation.quantity
       before = product.stock_on_hand - product.reserved_stock
-      Product.where(id: product.id).update_all(["reserved_stock = reserved_stock - ?, updated_at = ?", reservation.quantity, now])
+      Product.where(id: product.id).update_all([ "reserved_stock = reserved_stock - ?, updated_at = ?", reservation.quantity, now ])
       product.reload
       reservation.update!(status: "released", released_at: now)
       InventoryMovement.create!(product: product, order: order, movement_type: "reservation_release", quantity: reservation.quantity, stock_before: before, stock_after: product.stock_on_hand - product.reserved_stock, reference: order.order_number, notes: "Reservasi dilepas karena pembatalan disetujui", created_by: admin)

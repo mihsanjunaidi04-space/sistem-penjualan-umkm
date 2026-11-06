@@ -1,6 +1,6 @@
 class JwtService
-  ALGORITHM = 'HS256'
-  REVOCATION_PREFIX = 'revoked-jwt:'
+  ALGORITHM = "HS256"
+  REVOCATION_PREFIX = "revoked-jwt:"
 
   def self.encode(payload, exp = 24.hours.from_now.to_i)
     payload_with_exp = payload.deep_dup
@@ -18,7 +18,7 @@ class JwtService
   def self.revoke(token, claims)
     return if claims[:jti].blank?
 
-    ttl = [claims[:exp].to_i - Time.current.to_i, 1].max
+    ttl = [ claims[:exp].to_i - Time.current.to_i, 1 ].max
     Rails.cache.write(revocation_key(claims[:jti]), true, expires_in: ttl.seconds)
   end
 
@@ -31,6 +31,6 @@ class JwtService
   end
 
   def self.secret_key
-    ENV.fetch('JWT_SECRET', Rails.application.credentials.dig(:jwt, :secret) || 'development-jwt-secret-change-me')
+    ENV.fetch("JWT_SECRET", Rails.application.credentials.dig(:jwt, :secret) || "development-jwt-secret-change-me")
   end
 end

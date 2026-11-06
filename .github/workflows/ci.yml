@@ -1,3 +1,4 @@
+
 name: CI
 
 on:
@@ -19,16 +20,16 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: backend/.ruby-version
-          bundler-cache: true
+          ruby-version: '4.0.7'
           working-directory: backend
+          bundler-cache: true
 
       - name: Scan for common Rails security vulnerabilities using static analysis
-        run: bin/brakeman --no-pager
-      
+        run: bundle exec brakeman --no-pager
+
       - name: Scan for known security vulnerabilities in gems used
-        run: bin/bundler-audit
-      
+        run: bundle exec bundler-audit
+
   lint:
     runs-on: ubuntu-latest
     env:
@@ -36,6 +37,7 @@ jobs:
     defaults:
       run:
         working-directory: backend
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -43,9 +45,9 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: backend/.ruby-version
-          bundler-cache: true
+          ruby-version: '4.0.7'
           working-directory: backend
+          bundler-cache: true
 
       - name: Prepare RuboCop cache
         uses: actions/cache@v4
@@ -58,5 +60,31 @@ jobs:
             rubocop-${{ runner.os }}-${{ env.DEPENDENCIES_HASH }}-
 
       - name: Lint code for consistent style
-        run: bin/rubocop -f github
+        run: bundle exec rubocop -f github
 
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '4.0.7'
+          working-directory: backend
+          bundler-cache: true
+
+      - name: Prepare test database
+        run: bundle exec rails db:prepare
+        env:
+          RAILS_ENV: test
+
+      - name: Run backend RSpec suite
+        run: bundle exec rspec
+        env:
+          RAILS_ENV: test

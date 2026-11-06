@@ -39,7 +39,7 @@ RSpec.describe 'Product catalog API', type: :request do
 
       get '/products', params: { q: 'teh', category: 'makanan' }
       json = JSON.parse(response.body)
-      expect(json['data']['products'].map { |item| item['slug'] }).to eq(['teh-botol'])
+      expect(json['data']['products'].map { |item| item['slug'] }).to eq([ 'teh-botol' ])
       expect(json['data']['products'].first['data']).to be_nil
       expect(json['data']['products'].first['available_stock']).to eq(8)
     end
@@ -101,7 +101,7 @@ RSpec.describe 'Product catalog API', type: :request do
 
     it 'uploads and removes an allowed product image' do
       product_record = product(category)
-      file = Tempfile.new(['catalog', '.png'])
+      file = Tempfile.new([ 'catalog', '.png' ])
       file.write('fake png bytes')
       file.rewind
 
@@ -112,7 +112,7 @@ RSpec.describe 'Product catalog API', type: :request do
       delete "/admin/products/#{product_record.id}/images/#{image_id}", headers: auth_headers(admin)
       expect(response).to have_http_status(:ok)
 
-      invalid_file = Tempfile.new(['catalog', '.txt'])
+      invalid_file = Tempfile.new([ 'catalog', '.txt' ])
       invalid_file.write('not an image')
       invalid_file.rewind
       post "/admin/products/#{product_record.id}/images", params: { file: Rack::Test::UploadedFile.new(invalid_file.path, 'image/png') }, headers: auth_headers(admin)
@@ -122,6 +122,15 @@ RSpec.describe 'Product catalog API', type: :request do
     ensure
       file&.close
       file&.unlink
+    end
+
+    it 'does not serve product images outside the storage root' do
+      product_record = product(category)
+      image = product_record.product_images.create!(storage_key: '../private/proof.png', alt_text: 'Invalid path', position: 0)
+
+      get "/products/#{product_record.slug}/images/#{image.id}"
+
+      expect(response).to have_http_status(:not_found)
     end
   end
 end

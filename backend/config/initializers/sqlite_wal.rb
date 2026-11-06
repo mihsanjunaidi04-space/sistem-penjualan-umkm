@@ -3,11 +3,11 @@
 module SQLiteWalConfiguration
   def configure_connection
     super
-    return unless adapter_name == 'SQLite'
+    return unless adapter_name == "SQLite"
 
-    execute('PRAGMA journal_mode = WAL')
-    execute('PRAGMA busy_timeout = 5000')
-    execute('PRAGMA foreign_keys = ON')
+    execute("PRAGMA journal_mode = WAL")
+    execute("PRAGMA busy_timeout = 5000")
+    execute("PRAGMA foreign_keys = ON")
   end
 end
 
