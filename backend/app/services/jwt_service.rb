@@ -1,6 +1,5 @@
 class JwtService
   ALGORITHM = "HS256"
-  REVOCATION_PREFIX = "revoked-jwt:"
 
   def self.encode(payload, exp = 24.hours.from_now.to_i)
     payload_with_exp = payload.deep_dup
@@ -20,8 +19,12 @@ class JwtService
 
     expires_at = Time.at(claims[:exp].to_i).utc
     return if expires_at <= Time.current
+    return if JwtRevocation.exists?(jti: claims[:jti])
 
-    JwtRevocation.create!(jti: claims[:jti], expires_at: expires_at)
+    # The unique index resolves concurrent/repeated logout attempts atomically.
+    JwtRevocation.create_or_find_by!(jti: claims[:jti]) do |revocation|
+      revocation.expires_at = expires_at
+    end
   end
 
   def self.revoked?(claims)
@@ -31,10 +34,6 @@ class JwtService
   rescue ActiveRecord::ActiveRecordError
     # A storage outage must not turn a revoked token into an accepted token.
     true
-  end
-
-  def self.revocation_key(jti)
-    "#{REVOCATION_PREFIX}#{jti}"
   end
 
   def self.secret_key

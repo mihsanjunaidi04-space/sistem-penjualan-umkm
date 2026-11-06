@@ -8,6 +8,7 @@ interface AuthContextValue {
   login: (payload: LoginPayload) => Promise<void>
   register: (payload: RegisterPayload) => Promise<void>
   logout: () => Promise<void>
+  logoutError: string | null
   isAuthenticated: boolean
 }
 
@@ -31,6 +32,7 @@ function readStoredUser(): AuthUser | null {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(STORAGE_KEYS.token))
   const [user, setUser] = useState<AuthUser | null>(readStoredUser)
+  const [logoutError, setLogoutError] = useState<string | null>(null)
 
   const persistSession = useCallback((nextToken: string | null, nextUser: AuthUser | null) => {
     setToken(nextToken)
@@ -76,10 +78,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(async () => {
     try {
       await authService.logout()
-    } catch {
-      // Ignore backend logout errors and clear client session
-    } finally {
+      setLogoutError(null)
       persistSession(null, null)
+    } catch {
+      // Keep the session: the server may still accept this token.
+      setLogoutError('Logout gagal diproses. Sesi Anda tetap aktif; silakan coba lagi.')
     }
   }, [persistSession])
 
@@ -90,9 +93,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       login,
       register,
       logout,
+      logoutError,
       isAuthenticated: Boolean(token && user),
     }),
-    [login, logout, register, token, user],
+    [login, logout, logoutError, register, token, user],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

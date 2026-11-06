@@ -2,7 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../app/AuthProvider'
 
 export function PublicLayout() {
-  const { isAuthenticated, user, logout } = useAuth()
+  const { isAuthenticated, user, logout, logoutError } = useAuth()
 
   return (
     <div className="app-shell">
@@ -42,6 +42,7 @@ export function PublicLayout() {
       </header>
 
       <main className="page-shell">
+        {logoutError ? <div className="container"><div className="form-error" role="alert">{logoutError}</div></div> : null}
         <Outlet />
       </main>
 

@@ -37,7 +37,7 @@ class AuthController < ApplicationController
   end
 
   def logout
-    authenticate_user!
+    authenticate_user!(check_revocation: false)
     return if performed?
 
     claims = JwtService.decode(authenticated_token)
@@ -48,6 +48,8 @@ class AuthController < ApplicationController
       data: {},
       message: "Logout berhasil. Token sudah dicabut."
     }, status: :ok
+  rescue ActiveRecord::ActiveRecordError
+    render_error(:service_unavailable, "REVOCATION_UNAVAILABLE", "Logout tidak dapat diproses saat ini. Silakan coba lagi.")
   end
 
   def me

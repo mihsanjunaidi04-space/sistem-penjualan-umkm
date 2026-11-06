@@ -107,15 +107,48 @@ RSpec.describe 'Authentication API', type: :request do
     expect(JSON.parse(response.body)['error']['code']).to eq('INVALID_TOKEN')
   end
 
-  it 'keeps a revocation after the cache is initialized again' do
-    user = User.create!(name: 'Persistent Logout User', email: 'persistent-logout@example.com', password: 'password123', role: 'customer')
-    token = JwtService.encode({ user_id: user.id, role: user.role })
+  it 'persists revocation in SQLite across a connection reinitialization', use_transactional_fixtures: false do
+    token = JwtService.encode({ user_id: 999_999, role: 'customer' })
     claims = JwtService.decode(token)
 
     JwtService.revoke(token, claims)
-    Rails.cache = ActiveSupport::Cache::MemoryStore.new
+    expect(JwtRevocation.where(jti: claims[:jti]).count).to eq(1)
+
+    # Commit this record so a newly initialized SQLite connection can observe it.
+    ActiveRecord::Base.connection.execute("COMMIT")
+    ActiveRecord::Base.connection_pool.disconnect!
+    ActiveRecord::Base.establish_connection(Rails.application.config.database_configuration.fetch(Rails.env))
 
     expect(JwtService.revoked?(claims)).to be(true)
+    expect(JwtRevocation.find_by!(jti: claims[:jti]).expires_at).to be > Time.current
+    JwtRevocation.delete_by(jti: claims[:jti])
+  end
+
+  it 'treats repeated logout for the same token as idempotent' do
+    user = User.create!(name: 'Repeated Logout User', email: 'repeated-logout@example.com', password: 'password123', role: 'customer')
+    token = JwtService.encode({ user_id: user.id, role: user.role })
+
+    2.times do
+      delete '/auth/logout', headers: { 'Authorization' => "Bearer #{token}" }
+      expect(response).to have_http_status(:ok)
+    end
+
+    claims = JwtService.decode(token)
+    expect(JwtRevocation.where(jti: claims[:jti]).count).to eq(1)
+  end
+
+  it 'returns 503 without internal details when revocation cannot be written' do
+    user = User.create!(name: 'Logout Failure User', email: 'logout-failure@example.com', password: 'password123', role: 'customer')
+    token = JwtService.encode({ user_id: user.id, role: user.role })
+    allow(JwtRevocation).to receive(:create_or_find_by!).and_raise(ActiveRecord::ConnectionNotEstablished)
+
+    delete '/auth/logout', headers: { 'Authorization' => "Bearer #{token}" }
+
+    expect(response).to have_http_status(:service_unavailable)
+    body = JSON.parse(response.body)
+    expect(body['success']).to be(false)
+    expect(body['error']['code']).to eq('REVOCATION_UNAVAILABLE')
+    expect(response.body).not_to include('ConnectionNotEstablished', 'SQLite', 'database')
   end
 
   it 'fails closed when the revocation store cannot be read' do
@@ -133,7 +166,7 @@ RSpec.describe 'Authentication API', type: :request do
     token = JwtService.encode({ user_id: user.id, role: user.role })
     claims = JwtService.decode(token)
 
-    allow(JwtRevocation).to receive(:create!).and_raise(ActiveRecord::ConnectionNotEstablished)
+    allow(JwtRevocation).to receive(:create_or_find_by!).and_raise(ActiveRecord::ConnectionNotEstablished)
 
     expect { JwtService.revoke(token, claims) }.to raise_error(ActiveRecord::ConnectionNotEstablished)
   end
