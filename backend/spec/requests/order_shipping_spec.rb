@@ -17,7 +17,7 @@ RSpec.describe 'M8 order, cancellation, and shipping API', type: :request do
     OrderItem.create!(order: order, product: product, product_name_snapshot: product.name, sku_snapshot: product.sku, unit_price: 50_000, quantity: 1, subtotal: 50_000)
     InventoryReservation.create!(order: order, product: product, quantity: 1, status: payment_status == 'paid' ? 'converted' : 'reserved', expires_at: order.payment_deadline_at, converted_at: payment_status == 'paid' ? Time.current : nil)
     payment = Payment.create!(order: order, payment_method: 'manual_transfer', amount: 50_000, status: payment_status)
-    [order, product, payment]
+    [ order, product, payment ]
   end
 
   it 'keeps customer ownership and returns shipment/cancellation data' do

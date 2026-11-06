@@ -1,7 +1,7 @@
 class AuthController < ApplicationController
   def register
     user = User.new(user_params)
-    user.role = 'customer'
+    user.role = "customer"
 
     if user.save
       render json: {
@@ -10,10 +10,10 @@ class AuthController < ApplicationController
           token: build_token(user),
           user: serialize_user(user)
         },
-        message: 'Registrasi berhasil.'
+        message: "Registrasi berhasil."
       }, status: :created
     else
-      render_error(:unprocessable_entity, 'VALIDATION_ERROR', 'Data registrasi tidak valid.', user.errors.to_hash)
+      render_error(:unprocessable_entity, "VALIDATION_ERROR", "Data registrasi tidak valid.", user.errors.to_hash)
     end
   end
 
@@ -29,10 +29,10 @@ class AuthController < ApplicationController
           token: build_token(user),
           user: serialize_user(user)
         },
-        message: 'Login berhasil.'
+        message: "Login berhasil."
       }, status: :ok
     else
-      render_error(:unauthorized, 'INVALID_CREDENTIALS', 'Email atau password tidak valid.')
+      render_error(:unauthorized, "INVALID_CREDENTIALS", "Email atau password tidak valid.")
     end
   end
 
@@ -46,7 +46,7 @@ class AuthController < ApplicationController
     render json: {
       success: true,
       data: {},
-      message: 'Logout berhasil. Token sudah dicabut.'
+      message: "Logout berhasil. Token sudah dicabut."
     }, status: :ok
   end
 
@@ -57,7 +57,7 @@ class AuthController < ApplicationController
     render json: {
       success: true,
       data: { user: serialize_user(current_user) },
-      message: 'Identitas pengguna berhasil diambil.'
+      message: "Identitas pengguna berhasil diambil."
     }, status: :ok
   end
 
@@ -68,7 +68,7 @@ class AuthController < ApplicationController
     render json: {
       success: true,
       data: { role: current_user.role },
-      message: 'Akses admin valid.'
+      message: "Akses admin valid."
     }, status: :ok
   end
 
@@ -79,7 +79,7 @@ class AuthController < ApplicationController
     render json: {
       success: true,
       data: { role: current_user.role },
-      message: 'Akses customer valid.'
+      message: "Akses customer valid."
     }, status: :ok
   end
 

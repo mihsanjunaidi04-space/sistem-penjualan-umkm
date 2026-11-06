@@ -17,7 +17,7 @@ RSpec.describe 'Manual transfer payment API', type: :request do
     OrderItem.create!(order: order, product: product, product_name_snapshot: product.name, sku_snapshot: product.sku, unit_price: 50_000, quantity: 1, subtotal: 50_000)
     InventoryReservation.create!(order: order, product: product, quantity: 1, status: 'reserved', expires_at: order.payment_deadline_at)
     payment = Payment.create!(order: order, payment_method: 'manual_transfer', amount: 50_000, status: 'pending')
-    [order, product, payment]
+    [ order, product, payment ]
   end
 
   def png_upload(name = 'proof.png')
@@ -38,7 +38,9 @@ RSpec.describe 'Manual transfer payment API', type: :request do
     expect(response).to have_http_status(:created)
     expect(owner.payment.reload.status).to eq('waiting_verification')
     expect(JSON.parse(response.body).dig('data', 'payment', 'proofs', 0, 'url')).to be_nil
-    expect(File.dirname(PrivatePaymentProofStorage.path(owner.payment.payment_proofs.first.storage_key).to_s).split(/[\\\\\/]/).last(3)).to eq(%w[storage private payment_proofs])
+    file = PrivatePaymentProofStorage.open(owner.payment.payment_proofs.first.storage_key)
+    expect(File.dirname(file.path.to_s).split(/[\\\\\/]/).last(3)).to eq(%w[storage private payment_proofs])
+    file.close
   end
 
   it 'allows admin approval once and converts reservations atomically' do
@@ -86,6 +88,27 @@ RSpec.describe 'Manual transfer payment API', type: :request do
     proof_id = order.payment.payment_proofs.first.id
     get "/customer/orders/#{order.id}/payment-proofs/#{proof_id}", headers: headers(other)
     expect(response).to have_http_status(:not_found)
+  end
+
+  it 'serves a proof only to its owner or an authorized admin' do
+    customer = user
+    admin = user(role: 'admin')
+    other = user
+    order, = order_for(customer)
+    post "/customer/orders/#{order.id}/payment-proof", params: { proof: png_upload }, headers: headers(customer)
+    proof_id = order.payment.payment_proofs.first.id
+
+    get "/customer/orders/#{order.id}/payment-proofs/#{proof_id}", headers: headers(customer)
+    expect(response).to have_http_status(:ok)
+
+    get "/customer/orders/#{order.id}/payment-proofs/#{proof_id}", headers: headers(other)
+    expect(response).to have_http_status(:not_found)
+
+    get "/admin/payments/#{order.payment.id}/proofs/#{proof_id}", headers: headers(other)
+    expect(response).to have_http_status(:forbidden)
+
+    get "/admin/payments/#{order.payment.id}/proofs/#{proof_id}", headers: headers(admin)
+    expect(response).to have_http_status(:ok)
   end
 
   it 'rolls back approval when inventory becomes inconsistent' do

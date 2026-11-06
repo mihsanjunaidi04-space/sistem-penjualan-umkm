@@ -15,7 +15,8 @@ class Admin::PaymentsController < ApplicationController
   def proof
     payment = Payment.joins(:order).where(orders: { user_id: User.where(role: "customer").select(:id) }).find(params[:id])
     proof = payment.payment_proofs.find(params[:proof_id])
-    send_file PrivatePaymentProofStorage.path(proof.storage_key), type: proof.mime_type, disposition: "inline", filename: "payment-proof-#{proof.id}#{File.extname(proof.original_filename).downcase}"
+    file = PrivatePaymentProofStorage.open(proof.storage_key)
+    send_verified_file(file, type: proof.mime_type, disposition: "inline", filename: "payment-proof-#{proof.id}#{payment_proof_extension(proof.mime_type)}")
   rescue ActiveRecord::RecordNotFound, ArgumentError
     render_error(:not_found, "PAYMENT_PROOF_NOT_FOUND", "Bukti pembayaran tidak ditemukan.")
   end
@@ -57,5 +58,17 @@ class Admin::PaymentsController < ApplicationController
   def serialize_payment(payment)
     order = payment.order
     { id: payment.id, amount: payment.amount, method: payment.payment_method, status: payment.status, rejection_reason: payment.rejection_reason, verified_at: payment.verified_at&.iso8601, order: { id: order.id, order_number: order.order_number, status: order.status, total_amount: order.total_amount, customer_name: order.user.name, payment_deadline_at: order.payment_deadline_at.iso8601 }, proofs: payment.payment_proofs.order(created_at: :desc).map { |proof| { id: proof.id, status: proof.status, original_filename: proof.original_filename, mime_type: proof.mime_type, file_size: proof.file_size, uploaded_at: proof.uploaded_at.iso8601, url: "/admin/payments/#{payment.id}/proofs/#{proof.id}" } }, verification_history: payment.respond_to?(:verification_events) ? payment.verification_events.includes(:admin).order(created_at: :desc).map { |event| { decision: event.decision, reason: event.reason, admin_name: event.admin.name, created_at: event.created_at.iso8601 } } : [] }
+  end
+
+  def payment_proof_extension(mime_type)
+    { "image/jpeg" => ".jpg", "image/png" => ".png", "image/webp" => ".webp" }.fetch(mime_type, ".bin")
+  end
+
+  def send_verified_file(file, **options)
+    response.headers["Content-Length"] = file.size.to_s
+    send_data file, **options
+  rescue StandardError
+    file.close
+    raise
   end
 end

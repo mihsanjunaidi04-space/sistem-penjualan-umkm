@@ -7,7 +7,7 @@ admin.is_active = true
 admin.password = 'Password123!'
 admin.save!
 
-[{
+[ {
   name: 'Elektronik',
   slug: 'elektronik',
   description: 'Perangkat elektronik',
@@ -17,7 +17,7 @@ admin.save!
   slug: 'peralatan-rumah',
   description: 'Peralatan kebutuhan rumah',
   is_active: true
-}].each do |attrs|
+} ].each do |attrs|
   Category.find_or_create_by!(slug: attrs[:slug]) do |category|
     category.name = attrs[:name]
     category.description = attrs[:description]

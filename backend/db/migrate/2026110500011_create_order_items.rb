@@ -12,7 +12,7 @@ class CreateOrderItems < ActiveRecord::Migration[8.1]
     end
     add_index :order_items, :order_id
     add_index :order_items, :product_id
-    add_index :order_items, [:order_id, :product_id], unique: true
+    add_index :order_items, [ :order_id, :product_id ], unique: true
     add_foreign_key :order_items, :orders, on_delete: :restrict
     add_foreign_key :order_items, :products, on_delete: :restrict
     add_check_constraint :order_items, 'unit_price >= 0', name: 'order_items_unit_price_non_negative'
