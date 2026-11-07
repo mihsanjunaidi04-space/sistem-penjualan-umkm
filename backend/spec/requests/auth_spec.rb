@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require 'rails_helper'
+require 'base64'
+require 'openssl'
 
 RSpec.describe 'Authentication API', type: :request do
   def auth_headers(user)
@@ -88,6 +90,67 @@ RSpec.describe 'Authentication API', type: :request do
     user = User.create!(name: 'Expired User', email: 'expired@example.com', password: 'password123', role: 'customer')
     expired_token = JwtService.encode({ user_id: user.id }, 1.minute.ago.to_i)
     get '/auth/me', headers: { 'Authorization' => "Bearer #{expired_token}" }
+    expect(response).to have_http_status(:unauthorized)
+    expect(JSON.parse(response.body)['error']['code']).to eq('INVALID_TOKEN')
+  end
+
+  it 'rejects tokens missing required claims' do
+    user = User.create!(name: 'Required Claims User', email: 'required-claims@example.com', password: 'password123', role: 'customer')
+    secret = JwtService.secret_key
+
+    {
+      'exp' => { user_id: user.id, jti: SecureRandom.uuid },
+      'jti' => { user_id: user.id, exp: 1.hour.from_now.to_i },
+      'user_id' => { jti: SecureRandom.uuid, exp: 1.hour.from_now.to_i }
+    }.each do |missing_claim, claims|
+      token = JWT.encode(claims, secret, JwtService::ALGORITHM)
+
+      get '/auth/me', headers: { 'Authorization' => "Bearer #{token}" }
+
+      expect(response).to have_http_status(:unauthorized), "expected token missing #{missing_claim} to be rejected"
+      expect(JSON.parse(response.body)['error']['code']).to eq('INVALID_TOKEN')
+    end
+  end
+
+  it 'rejects tokens with a non-numeric exp claim' do
+    user = User.create!(name: 'Non Numeric Exp User', email: 'non-numeric-exp@example.com', password: 'password123', role: 'customer')
+    claims = { user_id: user.id, jti: SecureRandom.uuid, exp: 'not-a-timestamp' }
+    header = Base64.urlsafe_encode64({ alg: JwtService::ALGORITHM, typ: 'JWT' }.to_json, padding: false)
+    payload = Base64.urlsafe_encode64(claims.to_json, padding: false)
+    signing_input = "#{header}.#{payload}"
+    signature = Base64.urlsafe_encode64(OpenSSL::HMAC.digest(OpenSSL::Digest::SHA256.new, JwtService.secret_key, signing_input), padding: false)
+    token = "#{signing_input}.#{signature}"
+
+    get '/auth/me', headers: { 'Authorization' => "Bearer #{token}" }
+
+    expect(response).to have_http_status(:unauthorized)
+    expect(JSON.parse(response.body)['error']['code']).to eq('INVALID_TOKEN')
+  end
+
+  it 'rejects tokens with invalid signatures and algorithms' do
+    user = User.create!(name: 'JWT Validation User', email: 'jwt-validation@example.com', password: 'password123', role: 'customer')
+    claims = { user_id: user.id, jti: SecureRandom.uuid, exp: 1.hour.from_now.to_i }
+
+    invalid_signature = JWT.encode(claims, 'wrong-secret', JwtService::ALGORITHM)
+    get '/auth/me', headers: { 'Authorization' => "Bearer #{invalid_signature}" }
+    expect(response).to have_http_status(:unauthorized)
+
+    wrong_algorithm = JWT.encode(claims, JwtService.secret_key, 'HS384')
+    get '/auth/me', headers: { 'Authorization' => "Bearer #{wrong_algorithm}" }
+    expect(response).to have_http_status(:unauthorized)
+  end
+
+  it 'accepts a valid token and rejects a revoked token' do
+    user = User.create!(name: 'Valid JWT User', email: 'valid-jwt@example.com', password: 'password123', role: 'customer')
+    token = JwtService.encode({ user_id: user.id, role: user.role })
+
+    get '/auth/me', headers: { 'Authorization' => "Bearer #{token}" }
+    expect(response).to have_http_status(:ok)
+
+    claims = JwtService.decode(token)
+    JwtService.revoke(token, claims)
+
+    get '/auth/me', headers: { 'Authorization' => "Bearer #{token}" }
     expect(response).to have_http_status(:unauthorized)
     expect(JSON.parse(response.body)['error']['code']).to eq('INVALID_TOKEN')
   end

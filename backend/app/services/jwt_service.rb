@@ -9,7 +9,11 @@ class JwtService
   end
 
   def self.decode(token)
-    JWT.decode(token, secret_key, true, algorithm: ALGORITHM).first.with_indifferent_access
+    claims = JWT.decode(token, secret_key, true, algorithm: ALGORITHM, verify_expiration: true).first.with_indifferent_access
+    return nil unless claims[:user_id].present? && claims[:jti].present?
+    return nil unless claims[:exp].is_a?(Numeric) && claims[:exp] > Time.current.to_i
+
+    claims
   rescue JWT::DecodeError, JWT::ExpiredSignature, JWT::VerificationError
     nil
   end
