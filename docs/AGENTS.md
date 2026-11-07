@@ -77,7 +77,9 @@ Jika aturan berubah, perbarui dokumentasi terlebih dahulu.
 - API client terpusat.
 - Server state dikelola konsisten.
 - Validasi frontend untuk UX, backend tetap wajib validasi.
-- Jangan simpan token autentikasi jangka panjang di localStorage.
+- Autentikasi backend menggunakan JWT Bearer Token melalui `Authorization: Bearer <token>`; dokumentasi harus konsisten dan tidak mengasumsikan session cookie.
+- Hindari menyimpan token autentikasi berumur panjang di `localStorage` karena JavaScript pada origin yang sama dapat membacanya saat terjadi XSS.
+- Implementasi saat ini masih menyimpan JWT di `localStorage` (`umkm_token`); catat sebagai risiko yang ada, jangan menyebutnya aman, dan jangan mengklaim mitigasi yang belum diterapkan.
 - Route guard bukan pengganti authorization.
 - Sediakan loading, empty, error, success, unauthorized state.
 - Ikuti DESIGN.md.
@@ -95,8 +97,12 @@ Dilarang:
 - Menonaktifkan CSRF untuk menghilangkan error.
 - Bukti pembayaran public.
 - Secret dalam source code.
+- Secret production JWT kurang dari 32 byte atau fallback antar-environment.
+- Wildcard CORS production.
 - Stack trace/data rahasia di response.
 - Mengklaim aman tanpa pengujian.
+
+Frontend saat ini menyimpan JWT di `localStorage`, sehingga XSS yang dapat menjalankan JavaScript pada origin frontend berpotensi mencuri token. React melakukan escaping teks interpolasi secara default, tetapi itu bukan perlindungan menyeluruh terhadap XSS. Jangan mengklaim CSP atau sanitizer khusus telah tersedia tanpa implementasi dan verifikasi.
 
 ## 9. Transaction integrity
 
@@ -134,6 +140,10 @@ Setiap perubahan memiliki test yang sesuai:
 Jangan mengklaim test berhasil jika belum dijalankan. Laporkan output aktual dan test yang belum dijalankan.
 
 ## 12. Dokumentasi
+
+Production JWT secret harus melalui `JWT_SECRET` atau Rails credentials `jwt.secret`, minimal 32 byte; jika tidak tersedia atau lemah, startup harus gagal. Development/test tidak menggunakan secret production. CORS development/test hanya mengizinkan `http://localhost:5173`; production menggunakan allowlist origin HTTPS dari `CORS_ALLOWED_ORIGINS`, tanpa wildcard.
+
+Deployment SQLite tahap awal dibatasi satu host/backend instance dengan persistent storage lokal. Jangan menganggap WAL mendukung multi-writer atau shared multi-host storage.
 
 - Business rule → PRD.
 - Schema/relasi → DATABASE.

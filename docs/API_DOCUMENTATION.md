@@ -13,7 +13,7 @@
 - Semua endpoint privat memerlukan autentikasi.
 - Role dan ownership diperiksa di backend.
 - Tidak ada endpoint generik untuk mengubah status transaksi sesuka client.
-- Request mutasi dilindungi CSRF jika menggunakan cookie session.
+- Request privat menggunakan JWT Bearer Token pada header `Authorization`.
 - Perhitungan harga, diskon, ongkir, dan total dilakukan backend.
 - Error tidak membocorkan stack trace, SQL, secret, atau data sensitif.
 
@@ -46,7 +46,6 @@ HTTP status umum: 200, 201, 204, 400, 401, 403, 404, 409, 422, 429, 500.
 
 | Method | Endpoint | Akses |
 |---|---|---|
-| GET | `/auth/csrf` | Publik |
 | POST | `/auth/register` | Publik |
 | POST | `/auth/login` | Publik |
 | DELETE | `/auth/logout` | Login |
@@ -54,9 +53,13 @@ HTTP status umum: 200, 201, 204, 400, 401, 403, 404, 409, 422, 429, 500.
 | POST | `/auth/forgot-password` | Publik |
 | POST | `/auth/reset-password` | Publik |
 
-Gunakan server-side session dan HttpOnly cookie. Secure pada HTTPS, SameSite sesuai deployment, CSRF untuk mutasi. Jangan menyimpan token autentikasi jangka panjang di localStorage. Registrasi publik hanya membuat customer.
+Gunakan `Authorization: Bearer <token>` untuk endpoint privat. Login/register mengembalikan JWT; logout mencatat token pada penyimpanan revocation. Token menggunakan HS256 dan masa berlaku 24 jam. Registrasi publik hanya membuat customer.
 
-**Implementasi Rails:** endpoint CSRF dan cookie harus mengikuti konfigurasi Rails yang benar. Jangan membuat mekanisme CSRF buatan yang bertentangan dengan middleware Rails. Uji konfigurasi frontend/backend lintas origin pada development.
+**Penyimpanan frontend saat ini:** JWT disimpan pada `localStorage` dengan key `umkm_token`, lalu dibaca untuk mengirim header Bearer. `localStorage` dapat dibaca JavaScript pada origin yang sama; XSS yang berhasil dapat mencuri token dan menggunakannya sampai token kedaluwarsa atau dicabut. React meng-escape teks interpolasi secara default, namun ini bukan pencegahan XSS menyeluruh. Tidak ditemukan konfigurasi CSP atau sanitizer khusus untuk mengurangi risiko tersebut. Penyimpanan token perlu diperlakukan sebagai risiko keamanan yang diketahui.
+
+Secret signing wajib tersedia di `JWT_SECRET` atau Rails credentials `jwt.secret`. Di production secret wajib minimal 32 byte; konfigurasi hilang atau lemah membuat aplikasi gagal saat startup. Development/test menggunakan secret lokal khusus proses dan tidak memakai secret production. Jangan log secret atau memasukkannya ke repository.
+
+CORS development/test mengizinkan `http://localhost:5173`. Production memerlukan `CORS_ALLOWED_ORIGINS` berisi daftar origin HTTPS dipisahkan koma; whitespace di sekitar origin diabaikan. Origin kosong, tidak valid, HTTP, dan wildcard `*` ditolak. CORS credentials tidak diaktifkan.
 
 ## 4. Public catalog
 
@@ -313,9 +316,8 @@ Tambahkan batas ukuran payload, pagination, dan resource consumption.
 - Ownership check untuk mencegah IDOR/BOLA.
 - Parameterized query/ORM.
 - Input validation.
-- CSRF dan CORS yang benar.
+- CORS allowlist sesuai environment.
 - HTTPS pada produksi.
-- Secure HttpOnly cookie.
 - File proof private.
 - Error tanpa stack trace.
 - Audit log tindakan sensitif.
@@ -356,7 +358,9 @@ Cancellation is eligible only for an `awaiting_payment` order whose payment is `
 
 ## 24. Catatan kontrak
 
-Endpoint di atas merupakan kontrak rancangan. Sebelum implementasi, cocokkan dengan migration, model, authorization policy, konfigurasi session/CSRF Rails, dan kebutuhan UI. Perubahan endpoint harus memperbarui dokumen ini dan test terkait.
+Endpoint di atas merupakan kontrak rancangan. Sebelum implementasi, cocokkan dengan migration, model, authorization policy, konfigurasi JWT Bearer dan CORS, serta kebutuhan UI. Perubahan endpoint harus memperbarui dokumen ini dan test terkait.
+
+Deployment SQLite tahap awal dibatasi satu host/backend instance dengan persistent storage lokal. WAL tidak menyediakan dukungan multi-writer; jangan gunakan database SQLite pada storage bersama lintas host atau beberapa backend instance.
 # M7 — Payment transfer manual
 
 Endpoint customer:

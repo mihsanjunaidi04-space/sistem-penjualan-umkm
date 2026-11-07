@@ -55,13 +55,12 @@
 
 ### M4 — Authentication and authorization
 - Register/login/logout/me.
-- Server-side session.
-- CSRF dan cookie configuration.
+- JWT Bearer Token dan secret management.
 - Password reset.
 - Role admin/customer.
 - Ownership policy.
 
-**Gate:** session, CSRF, rate limit, role, ownership, dan negative tests.
+**Gate:** JWT validation/revocation, rate limit, role, ownership, dan negative tests.
 
 ### M5 — Product and catalog
 - Category/product CRUD.
@@ -148,7 +147,7 @@ Implementasikan bertahap:
 ### M13 — Deployment and documentation
 - Environment production.
 - HTTPS.
-- Secure cookies/CSRF/CORS.
+- JWT secret management dan CORS allowlist.
 - Secret management.
 - Admin MFA.
 - Backup schedule.
@@ -176,7 +175,7 @@ Jangan mengerjakan dashboard dekoratif atau fitur lanjutan sebelum alur inti ama
 ### Security
 - AuthN/AuthZ.
 - Ownership.
-- CSRF/CORS/session.
+- JWT/CORS.
 - Input validation.
 - File security.
 - Rate limit.

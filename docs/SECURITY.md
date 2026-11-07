@@ -58,12 +58,12 @@ Untuk fitur sensitif, identifikasi aktor, aset, trust boundary, ancaman, kontrol
 
 - Password disimpan menggunakan password hashing kuat seperti Argon2id atau bcrypt dengan parameter yang sesuai.
 - Jangan menyimpan plaintext atau reversible password.
-- Gunakan server-side session.
-- Session cookie HttpOnly; Secure pada HTTPS; SameSite sesuai topologi.
-- Terapkan CSRF protection untuk request mutasi.
-- Rotasi sesi setelah login dan perubahan privilege.
-- Logout mencabut sesi di server.
-- Terapkan expiry dan pencabutan sesi.
+- API menggunakan JWT Bearer Token dengan header `Authorization: Bearer <token>` dan HS256.
+- Logout mencabut token melalui tabel revocation; kegagalan baca revocation harus fail-closed.
+- Token memiliki expiry dan klaim `jti` untuk pencabutan.
+- Implementasi frontend saat ini menyimpan JWT di `localStorage` (`umkm_token`). JavaScript yang berjalan pada origin frontend, termasuk akibat XSS, dapat membaca dan mencuri token; token dapat digunakan sampai expiry atau revocation.
+- React meng-escape teks interpolasi secara default, tetapi ini bukan mitigasi XSS menyeluruh. Repository tidak menunjukkan CSP atau sanitizer khusus; jangan menganggap kontrol tersebut sudah tersedia.
+- `localStorage` bukan penyimpanan yang terlindung dari XSS. Hindari pola tersebut untuk token berumur panjang; catat kondisi saat ini sebagai risiko sampai ada perubahan yang disetujui dan diuji.
 - Reset token acak, disimpan sebagai digest, expiry, sekali pakai.
 - Forgot password tidak mengungkap apakah akun terdaftar.
 - Registrasi publik hanya membuat customer.
@@ -82,15 +82,13 @@ Jangan mengandalkan route guard, hidden button, UUID, atau user ID dari browser 
 ## 7. API and browser security
 
 - HTTPS pada produksi.
-- CORS allowlist; jangan wildcard dengan credentials.
-- CSRF protection.
+- CORS allowlist per environment; production hanya HTTPS dari `CORS_ALLOWED_ORIGINS` dan menolak wildcard. Credentials CORS tidak diaktifkan karena autentikasi memakai Bearer Token.
 - Rate limit.
 - Validasi content type dan ukuran request.
 - Pagination/filter dibatasi.
 - Security headers: CSP, HSTS, X-Content-Type-Options, Referrer-Policy sesuai deployment.
 - Error tidak membocorkan stack trace, SQL, path, atau secret.
-- Cookie/CORS/CSRF diuji bersama pada development dan production.
-- Jangan menonaktifkan CSRF untuk mengatasi masalah integrasi.
+- CORS diuji untuk origin lokal development dan allowlist production.
 
 ## 8. Input/output/database
 
@@ -157,9 +155,11 @@ Untuk bukti transfer:
 
 ## 12. Secrets and infrastructure
 
+- JWT production secret harus tersedia melalui `JWT_SECRET` atau Rails credentials `jwt.secret`, minimal 32 byte. Aplikasi gagal saat startup bila secret hilang/lemah tanpa membocorkan nilainya. Development/test memakai secret lokal terpisah.
+- CORS production wajib menggunakan daftar origin HTTPS eksplisit; konfigurasi kosong, origin tidak valid, HTTP, atau wildcard ditolak.
 - Secret melalui environment/secret manager.
 - `.env`, credential, private key, database produksi, backup tidak masuk Git.
-- Sediakan `.env.example` tanpa secret.
+- `.env.example` boleh dilacak dan hanya memuat placeholder aman.
 - Batasi SSH dan akun server.
 - Firewall hanya membuka port yang diperlukan.
 - Database tidak publik.
@@ -206,7 +206,7 @@ Prosedur insiden:
 - Manipulasi role ditolak.
 - SQL injection tidak berhasil.
 - XSS tidak dieksekusi.
-- CSRF tanpa token valid ditolak.
+- Request privat tanpa JWT Bearer Token valid ditolak.
 - Origin CORS tidak dikenal ditolak.
 - Login rate limit berfungsi.
 - File invalid/berbahaya ditolak.

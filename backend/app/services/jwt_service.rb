@@ -37,6 +37,20 @@ class JwtService
   end
 
   def self.secret_key
-    ENV.fetch("JWT_SECRET", Rails.application.credentials.dig(:jwt, :secret) || "development-jwt-secret-change-me")
+    secret = ENV["JWT_SECRET"].presence || Rails.application.credentials.dig(:jwt, :secret).presence
+
+    if Rails.env.production?
+      raise_configuration_error("JWT_SECRET or Rails credentials jwt.secret must be configured") if secret.blank?
+      raise_configuration_error("JWT secret must contain at least 32 bytes") if secret.bytesize < 32
+
+      secret
+    else
+      # Keep local/test signing independent from production secrets and stable for this process.
+      @development_secret ||= SecureRandom.hex(32)
+    end
+  end
+
+  def self.raise_configuration_error(message)
+    raise ArgumentError, "Invalid JWT configuration: #{message}"
   end
 end
