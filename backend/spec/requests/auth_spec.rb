@@ -255,4 +255,88 @@ RSpec.describe 'Authentication API', type: :request do
 
     expect(response).to have_http_status(:forbidden)
   end
+
+  describe 'rate limiting' do
+    def auth_ip(ip)
+      { 'REMOTE_ADDR' => ip }
+    end
+
+    it 'rate limits repeated failed logins by IP before bcrypt' do
+      stub_const('AuthRateLimiter::LOGIN_IP_LIMIT', 2)
+      user = User.create!(name: 'Rate Limited User', email: 'rate-limited@example.com', password: 'password123', role: 'customer')
+
+      2.times do
+        post '/auth/login', params: { email: user.email, password: 'wrong-password' }, headers: auth_ip('198.51.100.10'), as: :json
+        expect(response).to have_http_status(:unauthorized)
+      end
+
+      post '/auth/login', params: { email: user.email, password: 'wrong-password' }, headers: auth_ip('198.51.100.10'), as: :json
+      expect(response).to have_http_status(:too_many_requests)
+      expect(response.headers['Retry-After'].to_i).to be_positive
+      expect(JSON.parse(response.body)['error']['code']).to eq('RATE_LIMITED')
+    end
+
+    it 'does not hard-lock an account when failures come from different IPs' do
+      stub_const('AuthRateLimiter::LOGIN_IP_LIMIT', 1)
+      user = User.create!(name: 'Distributed Login User', email: 'distributed-login@example.com', password: 'password123', role: 'customer')
+
+      2.times do |index|
+        post '/auth/login', params: { email: user.email, password: 'wrong-password' }, headers: auth_ip("198.51.100.#{20 + index}"), as: :json
+        expect(response).to have_http_status(:unauthorized)
+      end
+
+      post '/auth/login', params: { email: user.email, password: 'password123' }, headers: auth_ip('198.51.100.22'), as: :json
+      expect(response).to have_http_status(:ok)
+    end
+
+    it 'applies the IP limit across different email addresses' do
+      stub_const('AuthRateLimiter::LOGIN_IP_LIMIT', 1)
+
+      post '/auth/login', params: { email: 'first@example.com', password: 'wrong-password' }, headers: auth_ip('198.51.100.30'), as: :json
+      expect(response).to have_http_status(:unauthorized)
+
+      post '/auth/login', params: { email: 'second@example.com', password: 'wrong-password' }, headers: auth_ip('198.51.100.30'), as: :json
+      expect(response).to have_http_status(:too_many_requests)
+    end
+
+    it 'allows login attempts again after the IP window expires' do
+      stub_const('AuthRateLimiter::LOGIN_IP_LIMIT', 1)
+      user = User.create!(name: 'Window Recovery User', email: 'window-recovery@example.com', password: 'password123', role: 'customer')
+      ip = '198.51.100.35'
+
+      post '/auth/login', params: { email: user.email, password: 'wrong-password' }, headers: auth_ip(ip), as: :json
+      expect(response).to have_http_status(:unauthorized)
+      post '/auth/login', params: { email: user.email, password: 'wrong-password' }, headers: auth_ip(ip), as: :json
+      expect(response).to have_http_status(:too_many_requests)
+
+      counter_key = AuthRateLimiter.send(:key, 'login-ip', ip)
+      AuthRateLimitCounter.find_by!(key: counter_key).update!(expires_at: 1.second.ago)
+
+      post '/auth/login', params: { email: user.email, password: 'wrong-password' }, headers: auth_ip(ip), as: :json
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    it 'ignores a client-supplied X-Forwarded-For value for the effective IP' do
+      stub_const('AuthRateLimiter::REGISTER_IP_LIMIT', 1)
+      headers = auth_ip('198.51.100.40').merge('X-Forwarded-For' => '203.0.113.1')
+      post '/auth/register', params: { name: 'First', email: 'first-register@example.com', password: 'password123', password_confirmation: 'password123' }, headers: headers, as: :json
+      expect(response).to have_http_status(:created)
+
+      headers['X-Forwarded-For'] = '203.0.113.2'
+      post '/auth/register', params: { name: 'Second', email: 'second-register@example.com', password: 'password123', password_confirmation: 'password123' }, headers: headers, as: :json
+      expect(response).to have_http_status(:too_many_requests)
+    end
+
+    it 'returns a generic registration error for duplicate email addresses' do
+      User.create!(name: 'Existing Registration User', email: 'existing-registration@example.com', password: 'password123', role: 'customer')
+
+      post '/auth/register', params: { name: 'Duplicate', email: 'existing-registration@example.com', password: 'password123', password_confirmation: 'password123' }, headers: auth_ip('198.51.100.50'), as: :json
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      body = JSON.parse(response.body)
+      expect(body['error']['code']).to eq('VALIDATION_ERROR')
+      expect(body['error']['details']).to eq({})
+      expect(response.body).not_to include('taken')
+    end
+  end
 end

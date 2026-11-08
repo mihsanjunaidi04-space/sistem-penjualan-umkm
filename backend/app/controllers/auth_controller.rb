@@ -1,5 +1,11 @@
 class AuthController < ApplicationController
   def register
+    rate_limit = AuthRateLimiter.before_register(request: request)
+    unless rate_limit[:allowed]
+      AuthRateLimiter.record_register_limited(request: request)
+      return render_rate_limited(rate_limit[:retry_after])
+    end
+
     user = User.new(user_params)
     user.role = "customer"
 
@@ -13,16 +19,23 @@ class AuthController < ApplicationController
         message: "Registrasi berhasil."
       }, status: :created
     else
-      render_error(:unprocessable_entity, "VALIDATION_ERROR", "Data registrasi tidak valid.", user.errors.to_hash)
+      render_error(:unprocessable_entity, "VALIDATION_ERROR", "Data registrasi tidak valid.")
     end
   end
 
   def login
     email = params[:email].to_s.strip.downcase
     password = params[:password].to_s
+    rate_limit = AuthRateLimiter.before_login(request: request, email: email)
+    if !rate_limit[:allowed]
+      AuthRateLimiter.record_login_limited(request: request)
+      return render_rate_limited(rate_limit[:retry_after])
+    end
 
     user = User.find_by(email: email)
     if user&.authenticate(password)
+      AuthRateLimiter.reset_login_failures(request: request, email: email)
+      AuthRateLimiter.record_login_success(request: request, user_id: user.id)
       render json: {
         success: true,
         data: {
@@ -32,6 +45,7 @@ class AuthController < ApplicationController
         message: "Login berhasil."
       }, status: :ok
     else
+      AuthRateLimiter.record_login_failure(request: request, email: email)
       render_error(:unauthorized, "INVALID_CREDENTIALS", "Email atau password tidak valid.")
     end
   end
@@ -86,6 +100,11 @@ class AuthController < ApplicationController
   end
 
   private
+
+  def render_rate_limited(retry_after)
+    response.set_header("Retry-After", retry_after.to_i.to_s)
+    render_error(:too_many_requests, "RATE_LIMITED", "Terlalu banyak percobaan. Silakan coba lagi nanti.")
+  end
 
   def user_params
     params.permit(:name, :email, :password, :password_confirmation)

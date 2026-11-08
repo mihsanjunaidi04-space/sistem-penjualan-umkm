@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026110600002) do
+ActiveRecord::Schema[8.1].define(version: 2026110700001) do
   create_table "addresses", force: :cascade do |t|
     t.bigint "user_id", null: false
     t.string "recipient_name", limit: 150, null: false
@@ -40,6 +40,18 @@ ActiveRecord::Schema[8.1].define(version: 2026110600002) do
     t.index ["action"], name: "index_audit_logs_on_action"
     t.index ["resource_type"], name: "index_audit_logs_on_resource_type"
     t.index ["user_id"], name: "index_audit_logs_on_user_id"
+  end
+
+  create_table "auth_rate_limit_counters", force: :cascade do |t|
+    t.string "key", limit: 160, null: false
+    t.integer "count", default: 0, null: false
+    t.datetime "window_started_at", null: false
+    t.datetime "expires_at", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["expires_at"], name: "index_auth_rate_limit_counters_on_expires_at"
+    t.index ["key"], name: "index_auth_rate_limit_counters_on_key", unique: true
+    t.check_constraint "count >= 0", name: "auth_rate_limit_counters_count_non_negative"
   end
 
   create_table "cancellation_requests", force: :cascade do |t|
