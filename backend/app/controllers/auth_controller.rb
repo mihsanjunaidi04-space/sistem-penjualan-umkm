@@ -132,5 +132,4 @@ class AuthController < ApplicationController
       updated_at: user.updated_at.iso8601
     }
   end
-
 end

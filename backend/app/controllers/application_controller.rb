@@ -35,7 +35,7 @@ class ApplicationController < ActionController::API
 
     unless @current_user.is_active?
       log_security_event("auth.jwt.account_inactive", user_id: @current_user.id)
-      return render_error(:unauthorized, "ACCOUNT_INACTIVE", "Akun tidak aktif.")
+      render_error(:unauthorized, "ACCOUNT_INACTIVE", "Akun tidak aktif.")
     end
   rescue JWT::InvalidTokenError, JWT::DecodeError
     log_security_event("auth.jwt.invalid")
