@@ -158,14 +158,20 @@ class AuthRateLimiter
   def self.log_event(event, request:, **attributes)
     Rails.logger.info({ event: event, ip: source_ip(request), **attributes }.to_json)
   rescue StandardError
-    nil
+    fallback_log(event)
   end
 
   def self.log_failure(operation, error)
     Rails.logger.warn({ event: "auth.rate_limiter.failure", operation: operation, error: error.class.name, degraded: true }.to_json)
   rescue StandardError
+    fallback_log("auth.rate_limiter.failure")
+  end
+
+  def self.fallback_log(source)
+    Kernel.warn({ event: "auth.logger.failure", source: source, degraded: true }.to_json)
+  rescue StandardError
     nil
   end
 
-  private_class_method :positive_integer_env, :key, :identifier_digest, :progressive_delay, :consume, :increment, :count, :log_event, :log_failure
+  private_class_method :positive_integer_env, :key, :identifier_digest, :progressive_delay, :consume, :increment, :count, :log_event, :log_failure, :fallback_log
 end

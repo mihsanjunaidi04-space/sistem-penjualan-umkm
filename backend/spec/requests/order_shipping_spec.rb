@@ -112,4 +112,67 @@ RSpec.describe 'M8 order, cancellation, and shipping API', type: :request do
     expect(order.cancellation_requests.first.reload.status).to eq('pending')
     expect(InventoryMovement.where(order: order, movement_type: 'reservation_release')).to be_empty
   end
+
+  it 'rolls back cancellation approval when the audit log cannot be created' do
+    customer = user
+    admin = user(role: 'admin')
+    order, product, payment = order_for(customer)
+    post "/customer/orders/#{order.id}/cancellation-requests", params: { reason: 'Tes audit rollback' }, headers: headers(customer), as: :json
+    expect(response).to have_http_status(:created)
+    cancellation = order.cancellation_requests.first
+    failure = ActiveRecord::StatementInvalid.new('audit log write failed')
+
+    allow(AuditLog).to receive(:create!).and_raise(failure)
+
+    expect {
+      CancellationService.approve!(
+        id: cancellation.id,
+        admin: admin,
+        request: instance_double(ActionDispatch::Request, remote_ip: '198.51.100.11', user_agent: 'RSpec')
+      )
+    }.to raise_error(ActiveRecord::StatementInvalid)
+
+    expect(order.reload.status).to eq('awaiting_payment')
+    expect(cancellation.reload.status).to eq('pending')
+    expect(payment.reload.status).to eq('pending')
+    expect(product.reload.reserved_stock).to eq(1)
+    expect(order.inventory_reservations.first.reload.status).to eq('reserved')
+    expect(AuditLog.where(action: 'cancellation_approved', resource_id: cancellation.id.to_s)).to be_empty
+  end
+
+  it 'rolls back shipment creation when the audit log cannot be created' do
+    admin = user(role: 'admin')
+    order, = order_for(user, payment_status: 'paid')
+    failure = ActiveRecord::StatementInvalid.new('audit log write failed')
+
+    allow(AuditLog).to receive(:create!).and_raise(failure)
+
+    expect {
+      ShipmentService.create!(
+        order_id: order.id,
+        admin: admin,
+        request: instance_double(ActionDispatch::Request, remote_ip: '198.51.100.12', user_agent: 'RSpec')
+      )
+    }.to raise_error(ActiveRecord::StatementInvalid)
+
+    expect(order.reload.status).to eq('processing')
+    expect(order.reload.shipment).to be_nil
+    expect(AuditLog.where(action: 'shipment_created', resource_id: order.id.to_s)).to be_empty
+  end
+
+  it 'rolls back automatic order completion when the audit log cannot be created' do
+    order, = order_for(user, payment_status: 'paid')
+    order.update!(status: 'shipped', shipped_at: 8.days.ago)
+    failure = ActiveRecord::StatementInvalid.new('audit log write failed')
+
+    allow(AuditLog).to receive(:create!).and_raise(failure)
+
+    expect {
+      OrderCompletionService.call(now: Time.current)
+    }.to raise_error(ActiveRecord::StatementInvalid)
+
+    expect(order.reload.status).to eq('shipped')
+    expect(order.completed_at).to be_nil
+    expect(AuditLog.where(action: 'order_completed', resource_id: order.id.to_s)).to be_empty
+  end
 end

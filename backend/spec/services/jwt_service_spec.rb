@@ -52,12 +52,28 @@ RSpec.describe JwtService do
     expect(claims[:exp]).to be_present
   end
 
+  it 'classifies expired and invalid tokens without exposing their contents' do
+    expired_token = described_class.encode({ user_id: 42 }, 1.minute.ago.to_i)
+    invalid_token = 'malformed.jwt.value'
+
+    expect(described_class.decode_result(expired_token)).to include(claims: nil, status: :expired)
+    expect(described_class.decode_result(invalid_token)).to include(claims: nil, status: :invalid)
+  end
+
   it 'continues to revoke and identify revoked tokens' do
     token = described_class.encode(user_id: 42)
     claims = described_class.decode(token)
 
     described_class.revoke(token, claims)
 
+    expect(described_class.revoked?(claims)).to be(true)
+  end
+
+  it 'classifies revocation storage failures while revoked? remains fail-closed' do
+    claims = described_class.decode(described_class.encode(user_id: 42))
+    allow(JwtRevocation).to receive(:where).and_raise(ActiveRecord::ConnectionNotEstablished)
+
+    expect(described_class.revocation_status(claims)).to eq(:unavailable)
     expect(described_class.revoked?(claims)).to be(true)
   end
 end

@@ -11,7 +11,18 @@ RSpec.describe 'Authentication API', type: :request do
     }
   end
 
+  def capture_security_events
+    events = []
+    allow(Rails.logger).to receive(:info) do |message|
+      events << JSON.parse(message) if message.is_a?(String)
+    end
+    events
+  end
+
   it 'registers a customer and returns a JWT token' do
+    events = []
+    allow(Rails.logger).to receive(:info) { |message| events << JSON.parse(message) if message.is_a?(String) }
+
     post '/auth/register', params: {
       name: 'Alice Customer',
       email: 'alice@example.com',
@@ -24,9 +35,16 @@ RSpec.describe 'Authentication API', type: :request do
     expect(json['success']).to be(true)
     expect(json['data']['user']['role']).to eq('customer')
     expect(json['data']['token']).to be_present
+
+    event = events.find { |entry| entry['event'] == 'auth.register.success' }
+    expect(event).to include('event' => 'auth.register.success', 'user_id' => json['data']['user']['id'])
+    expect(event.to_json).not_to include('alice@example.com', 'password123', json['data']['token'], 'Authorization', JwtService.secret_key)
   end
 
   it 'rejects invalid registration data and duplicate email addresses' do
+    events = []
+    allow(Rails.logger).to receive(:info) { |message| events << JSON.parse(message) if message.is_a?(String) }
+
     post '/auth/register', params: {
       name: '',
       email: 'invalid-email',
@@ -46,6 +64,7 @@ RSpec.describe 'Authentication API', type: :request do
     }, as: :json
 
     expect(response).to have_http_status(:unprocessable_entity)
+    expect(events.none? { |entry| entry['event'] == 'auth.register.success' }).to be(true)
   end
 
   it 'logs in and returns the current user identity' do
@@ -76,6 +95,32 @@ RSpec.describe 'Authentication API', type: :request do
     expect(JSON.parse(response.body)['error']['code']).to eq('INVALID_CREDENTIALS')
   end
 
+  it 'rejects inactive accounts at login with the same generic response and no token' do
+    inactive_user = User.create!(name: 'Inactive User', email: 'inactive@example.com', password: 'password123', role: 'customer', is_active: false)
+
+    post '/auth/login', params: { email: inactive_user.email, password: 'password123' }, as: :json
+
+    inactive_response_body = response.body
+    inactive_response = JSON.parse(inactive_response_body)
+
+    expect(response).to have_http_status(:unauthorized)
+    expect(inactive_response['error']['code']).to eq('INVALID_CREDENTIALS')
+    expect(inactive_response['error']['message']).to eq('Email atau password tidak valid.')
+    expect(inactive_response_body).not_to include('ACCOUNT_INACTIVE')
+    expect(inactive_response_body).not_to include(inactive_user.email)
+    expect(inactive_response.dig('data', 'token')).to be_nil
+
+    post '/auth/login', params: { email: inactive_user.email, password: 'wrong-password' }, as: :json
+
+    expect(response).to have_http_status(:unauthorized)
+    expect(response.body).to eq(inactive_response_body)
+
+    get '/auth/me', headers: auth_headers(inactive_user)
+
+    expect(response).to have_http_status(:unauthorized)
+    expect(JSON.parse(response.body)['error']['code']).to eq('ACCOUNT_INACTIVE')
+  end
+
   it 'rejects missing, invalid, and expired tokens' do
     get '/auth/me'
     expect(response).to have_http_status(:unauthorized)
@@ -92,6 +137,30 @@ RSpec.describe 'Authentication API', type: :request do
     get '/auth/me', headers: { 'Authorization' => "Bearer #{expired_token}" }
     expect(response).to have_http_status(:unauthorized)
     expect(JSON.parse(response.body)['error']['code']).to eq('INVALID_TOKEN')
+  end
+
+  it 'logs one safe invalid JWT event for a malformed or incorrectly signed token' do
+    events = capture_security_events
+    invalid_token = 'malformed.jwt.value'
+
+    get '/auth/me', headers: { 'Authorization' => "Bearer #{invalid_token}" }
+
+    expect(response).to have_http_status(:unauthorized)
+    invalid_events = events.select { |entry| entry['event'] == 'auth.jwt.invalid' }
+    expect(invalid_events.size).to eq(1)
+    expect(invalid_events.first.to_json).not_to include(invalid_token, 'Authorization', JwtService.secret_key, 'password', '@')
+  end
+
+  it 'logs expired JWTs distinctly without changing the response' do
+    events = capture_security_events
+    user = User.create!(name: 'Expired Event User', email: 'expired-event@example.com', password: 'password123', role: 'customer')
+    expired_token = JwtService.encode({ user_id: user.id }, 1.minute.ago.to_i)
+
+    get '/auth/me', headers: { 'Authorization' => "Bearer #{expired_token}" }
+
+    expect(response).to have_http_status(:unauthorized)
+    expect(JSON.parse(response.body)['error']['code']).to eq('INVALID_TOKEN')
+    expect(events.count { |entry| entry['event'] == 'auth.jwt.expired' }).to eq(1)
   end
 
   it 'rejects tokens missing required claims' do
@@ -141,6 +210,7 @@ RSpec.describe 'Authentication API', type: :request do
   end
 
   it 'accepts a valid token and rejects a revoked token' do
+    events = capture_security_events
     user = User.create!(name: 'Valid JWT User', email: 'valid-jwt@example.com', password: 'password123', role: 'customer')
     token = JwtService.encode({ user_id: user.id, role: user.role })
 
@@ -153,17 +223,55 @@ RSpec.describe 'Authentication API', type: :request do
     get '/auth/me', headers: { 'Authorization' => "Bearer #{token}" }
     expect(response).to have_http_status(:unauthorized)
     expect(JSON.parse(response.body)['error']['code']).to eq('INVALID_TOKEN')
+    expect(events.count { |entry| entry['event'] == 'auth.jwt.revoked' }).to eq(1)
+  end
+
+  it 'logs revocation storage failure and remains fail-closed' do
+    events = capture_security_events
+    user = User.create!(name: 'Revocation Event User', email: 'revocation-event@example.com', password: 'password123', role: 'customer')
+    token = JwtService.encode({ user_id: user.id, role: user.role })
+    allow(JwtRevocation).to receive(:where).and_raise(ActiveRecord::ConnectionNotEstablished)
+
+    get '/auth/me', headers: { 'Authorization' => "Bearer #{token}" }
+
+    expect(response).to have_http_status(:unauthorized)
+    expect(JSON.parse(response.body)['error']['code']).to eq('INVALID_TOKEN')
+    expect(events.count { |entry| entry['event'] == 'auth.jwt.revocation_unavailable' }).to eq(1)
+    expect(events.join).not_to include(token, 'Authorization', 'ConnectionNotEstablished', 'password', user.email)
+  end
+
+  it 'logs missing users and inactive accounts after token validation' do
+    events = capture_security_events
+    missing_user_token = JwtService.encode({ user_id: 999_999, role: 'customer' })
+    get '/auth/me', headers: { 'Authorization' => "Bearer #{missing_user_token}" }
+    expect(response).to have_http_status(:unauthorized)
+    expect(JSON.parse(response.body)['error']['code']).to eq('USER_NOT_FOUND')
+    expect(events.count { |entry| entry['event'] == 'auth.jwt.user_missing' }).to eq(1)
+
+    inactive_user = User.create!(name: 'Inactive Event User', email: 'inactive-event@example.com', password: 'password123', role: 'customer', is_active: false)
+    inactive_token = JwtService.encode({ user_id: inactive_user.id, role: inactive_user.role })
+    get '/auth/me', headers: { 'Authorization' => "Bearer #{inactive_token}" }
+    expect(response).to have_http_status(:unauthorized)
+    expect(JSON.parse(response.body)['error']['code']).to eq('ACCOUNT_INACTIVE')
+    expect(events.count { |entry| entry['event'] == 'auth.jwt.account_inactive' }).to eq(1)
   end
 
   it 'requires authentication for logout and revokes a logged-out token' do
+    events = []
+    allow(Rails.logger).to receive(:info) { |message| events << JSON.parse(message) if message.is_a?(String) }
+
     user = User.create!(name: 'Logout User', email: 'logout@example.com', password: 'password123', role: 'customer')
     token = JwtService.encode({ user_id: user.id, role: user.role })
 
     delete '/auth/logout'
     expect(response).to have_http_status(:unauthorized)
+    expect(events).to include(include('event' => 'auth.logout.failure', 'reason' => 'token_missing'))
 
     delete '/auth/logout', headers: { 'Authorization' => "Bearer #{token}" }
     expect(response).to have_http_status(:ok)
+    success_event = events.find { |entry| entry['event'] == 'auth.logout.success' }
+    expect(success_event).to include('event' => 'auth.logout.success', 'user_id' => user.id)
+    expect(success_event.to_json).not_to include(token, 'Authorization', user.email, JwtService.secret_key)
 
     get '/auth/me', headers: { 'Authorization' => "Bearer #{token}" }
     expect(response).to have_http_status(:unauthorized)
@@ -201,6 +309,9 @@ RSpec.describe 'Authentication API', type: :request do
   end
 
   it 'returns 503 without internal details when revocation cannot be written' do
+    events = []
+    allow(Rails.logger).to receive(:info) { |message| events << JSON.parse(message) if message.is_a?(String) }
+
     user = User.create!(name: 'Logout Failure User', email: 'logout-failure@example.com', password: 'password123', role: 'customer')
     token = JwtService.encode({ user_id: user.id, role: user.role })
     allow(JwtRevocation).to receive(:create_or_find_by!).and_raise(ActiveRecord::ConnectionNotEstablished)
@@ -212,6 +323,22 @@ RSpec.describe 'Authentication API', type: :request do
     expect(body['success']).to be(false)
     expect(body['error']['code']).to eq('REVOCATION_UNAVAILABLE')
     expect(response.body).not_to include('ConnectionNotEstablished', 'SQLite', 'database')
+    expect(events).to include(include('event' => 'auth.logout.failure', 'reason' => 'revocation_failed'))
+    expect(events.none? { |entry| entry['event'] == 'auth.logout.success' }).to be(true)
+  end
+
+  it 'logs invalid logout tokens without exposing the token' do
+    events = []
+    allow(Rails.logger).to receive(:info) { |message| events << JSON.parse(message) if message.is_a?(String) }
+    invalid_token = 'invalid.logout.token'
+
+    delete '/auth/logout', headers: { 'Authorization' => "Bearer #{invalid_token}" }
+
+    expect(response).to have_http_status(:unauthorized)
+    expect(JSON.parse(response.body)['error']['code']).to eq('INVALID_TOKEN')
+    failure_event = events.find { |entry| entry['event'] == 'auth.logout.failure' }
+    expect(failure_event).to include('event' => 'auth.logout.failure', 'reason' => 'authentication_failed')
+    expect(failure_event.to_json).not_to include(invalid_token, 'Authorization', JwtService.secret_key)
   end
 
   it 'fails closed when the revocation store cannot be read' do
@@ -235,6 +362,7 @@ RSpec.describe 'Authentication API', type: :request do
   end
 
   it 'enforces admin and customer access rules' do
+    events = capture_security_events
     customer = User.create!(name: 'Customer Access', email: 'customer-access@example.com', password: 'password123', role: 'customer')
     admin = User.create!(name: 'Admin Access', email: 'admin-access@example.com', password: 'password123', role: 'admin')
 
@@ -243,9 +371,11 @@ RSpec.describe 'Authentication API', type: :request do
 
     get '/auth/admin', headers: auth_headers(customer)
     expect(response).to have_http_status(:forbidden)
+    expect(events.count { |entry| entry['event'] == 'auth.authorization.denied' }).to eq(1)
 
     get '/auth/admin', headers: auth_headers(admin)
     expect(response).to have_http_status(:ok)
+    expect(events.count { |entry| entry['event'] == 'auth.authorization.denied' }).to eq(1)
   end
 
   it 'does not trust a token role claim over the database user role' do

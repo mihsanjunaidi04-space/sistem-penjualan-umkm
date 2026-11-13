@@ -124,4 +124,31 @@ RSpec.describe 'Manual transfer payment API', type: :request do
     expect(order.inventory_reservations.first.reload.status).to eq('reserved')
     expect(InventoryMovement.where(order: order, movement_type: 'stock_out')).to be_empty
   end
+
+  it 'rolls back payment approval when the audit log cannot be created' do
+    customer = user
+    admin = user(role: 'admin')
+    order, product, payment = order_for(customer)
+    post "/customer/orders/#{order.id}/payment-proof", params: { proof: png_upload }, headers: headers(customer)
+    expect(response).to have_http_status(:created)
+    proof = payment.payment_proofs.first
+    failure = ActiveRecord::StatementInvalid.new('audit log write failed')
+
+    allow(AuditLog).to receive(:create!).and_raise(failure)
+
+    expect {
+      PaymentApprovalService.approve!(
+        payment_id: payment.id,
+        admin: admin,
+        request: instance_double(ActionDispatch::Request, remote_ip: '198.51.100.10', user_agent: 'RSpec')
+      )
+    }.to raise_error(ActiveRecord::StatementInvalid)
+
+    expect(payment.reload.status).to eq('waiting_verification')
+    expect(order.reload.status).to eq('awaiting_payment')
+    expect(product.reload).to have_attributes(stock_on_hand: 3, reserved_stock: 1)
+    expect(proof.reload.status).to eq('submitted')
+    expect(PaymentVerificationEvent.where(payment: payment)).to be_empty
+    expect(AuditLog.where(action: 'payment_approved', resource_id: payment.id.to_s)).to be_empty
+  end
 end

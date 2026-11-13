@@ -10,6 +10,7 @@ class AuthController < ApplicationController
     user.role = "customer"
 
     if user.save
+      log_security_event("auth.register.success", user_id: user.id)
       render json: {
         success: true,
         data: {
@@ -33,7 +34,7 @@ class AuthController < ApplicationController
     end
 
     user = User.find_by(email: email)
-    if user&.authenticate(password)
+    if user&.authenticate(password) && user.is_active?
       AuthRateLimiter.reset_login_failures(request: request, email: email)
       AuthRateLimiter.record_login_success(request: request, user_id: user.id)
       render json: {
@@ -51,11 +52,16 @@ class AuthController < ApplicationController
   end
 
   def logout
+    token = authenticated_token
     authenticate_user!(check_revocation: false)
-    return if performed?
+    if performed?
+      log_security_event("auth.logout.failure", reason: token.blank? ? "token_missing" : "authentication_failed")
+      return
+    end
 
-    claims = JwtService.decode(authenticated_token)
-    JwtService.revoke(authenticated_token, claims) if claims
+    claims = JwtService.decode(token)
+    JwtService.revoke(token, claims) if claims
+    log_security_event("auth.logout.success", user_id: current_user.id)
 
     render json: {
       success: true,
@@ -63,6 +69,7 @@ class AuthController < ApplicationController
       message: "Logout berhasil. Token sudah dicabut."
     }, status: :ok
   rescue ActiveRecord::ActiveRecordError
+    log_security_event("auth.logout.failure", reason: "revocation_failed")
     render_error(:service_unavailable, "REVOCATION_UNAVAILABLE", "Logout tidak dapat diproses saat ini. Silakan coba lagi.")
   end
 
@@ -125,4 +132,5 @@ class AuthController < ApplicationController
       updated_at: user.updated_at.iso8601
     }
   end
+
 end

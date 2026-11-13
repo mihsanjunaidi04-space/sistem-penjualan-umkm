@@ -9,13 +9,19 @@ class JwtService
   end
 
   def self.decode(token)
-    claims = JWT.decode(token, secret_key, true, algorithm: ALGORITHM, verify_expiration: true).first.with_indifferent_access
-    return nil unless claims[:user_id].present? && claims[:jti].present?
-    return nil unless claims[:exp].is_a?(Numeric) && claims[:exp] > Time.current.to_i
+    decode_result(token)[:claims]
+  end
 
-    claims
-  rescue JWT::DecodeError, JWT::ExpiredSignature, JWT::VerificationError
-    nil
+  def self.decode_result(token)
+    claims = JWT.decode(token, secret_key, true, algorithm: ALGORITHM, verify_expiration: true).first.with_indifferent_access
+    return { claims: nil, status: :invalid } unless claims[:user_id].present? && claims[:jti].present?
+    return { claims: nil, status: :invalid } unless claims[:exp].is_a?(Numeric) && claims[:exp] > Time.current.to_i
+
+    { claims: claims, status: :valid }
+  rescue JWT::ExpiredSignature
+    { claims: nil, status: :expired }
+  rescue JWT::DecodeError, JWT::VerificationError
+    { claims: nil, status: :invalid }
   end
 
   def self.revoke(token, claims)
@@ -32,12 +38,16 @@ class JwtService
   end
 
   def self.revoked?(claims)
-    return false if claims[:jti].blank? || claims[:exp].blank?
+    revocation_status(claims) != :not_revoked
+  end
 
-    JwtRevocation.where(jti: claims[:jti]).where("expires_at > ?", Time.current).exists?
+  def self.revocation_status(claims)
+    return :not_revoked if claims[:jti].blank? || claims[:exp].blank?
+
+    JwtRevocation.where(jti: claims[:jti]).where("expires_at > ?", Time.current).exists? ? :revoked : :not_revoked
   rescue ActiveRecord::ActiveRecordError
     # A storage outage must not turn a revoked token into an accepted token.
-    true
+    :unavailable
   end
 
   def self.secret_key
