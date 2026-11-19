@@ -1,8 +1,8 @@
 # DATABASE DESIGN
 ## Sistem Informasi Penjualan UMKM
 
-**Versi:** 1.0  
-**Database awal:** SQLite  
+**Versi:** 1.1
+**Database awal:** SQLite
 **ORM:** Active Record (Rails)
 
 ## 1. Prinsip desain
@@ -29,11 +29,11 @@
 
 ## 3. Daftar tabel
 
-Rancangan ini terdiri dari **28 tabel**:
+Rancangan ini terdiri dari **30 tabel**:
 
 1. `users`
 2. `addresses`
-3. `auth_sessions`
+3. `auth_rate_limit_counters`
 4. `password_reset_tokens`
 5. `categories`
 6. `products`
@@ -44,21 +44,25 @@ Rancangan ini terdiri dari **28 tabel**:
 11. `order_items`
 12. `payments`
 13. `payment_proofs`
-14. `inventory_reservations`
-15. `inventory_movements`
-16. `shipping_methods`
-17. `shipments`
-18. `vouchers`
-19. `voucher_redemptions`
-20. `wishlists`
-21. `wishlist_items`
-22. `reviews`
-23. `notifications`
-24. `audit_logs`
-25. `idempotency_keys`
-26. `store_settings`
-27. `cancellation_requests`
-28. `refunds`
+14. `payment_verification_events`
+15. `inventory_reservations`
+16. `inventory_movements`
+17. `shipping_methods`
+18. `shipments`
+19. `vouchers`
+20. `voucher_redemptions`
+21. `wishlists`
+22. `wishlist_items`
+23. `reviews`
+24. `notifications`
+25. `audit_logs`
+26. `idempotency_keys`
+27. `store_settings`
+28. `cancellation_requests`
+29. `refunds`
+30. `jwt_revocations`
+
+**Catatan:** `auth_sessions` tercantum dalam rancangan awal (versi 1.0) namun **tidak diimplementasikan** — tidak ada migration, tidak ada tabel di schema, dan `database_integrity_spec.rb` memverifikasi ketiadaan tabel ini. Revocation JWT menggunakan tabel `jwt_revocations` (lihat tabel 30). Keputusan `auth_sessions` masih ditunda.
 
 ## 4. Struktur tabel konseptual
 
@@ -75,13 +79,21 @@ Kolom `id`, `created_at`, dan `updated_at` yang lazim pada Rails tidak selalu di
 - `user_id` FK, `recipient_name`, `phone`, `address_line`, `province`, `city`, `district`, `postal_code`, `notes`, `is_default`.
 - User memiliki banyak alamat; akses dibatasi pemilik.
 
-**auth_sessions**
-- `user_id` FK, `session_token_digest`, `expires_at`, `last_used_at`.
-- Simpan referensi/digest sesi, bukan token mentah jika implementasi memungkinkan.
+**auth_rate_limit_counters**
+- `key` (unique), `count`, `window_started_at`, `expires_at`.
+- Digunakan oleh `AuthRateLimiter` untuk melacak percobaan login/registrasi per IP dan email (HMAC-SHA256).
+- `count` tidak negatif (check constraint).
+- Dibersihkan secara berkala oleh `AuthRateLimiter.cleanup_expired!`.
 
 **password_reset_tokens**
 - `user_id` FK, `token_digest`, `expires_at`, `used_at`.
 - Token acak, sekali pakai, memiliki expiry.
+
+**auth_sessions (ditunda)**
+- Direncanakan pada rancangan awal namun **belum diimplementasikan**.
+- Tidak ada migration, tidak ada tabel di schema.
+- Revocation JWT saat ini menggunakan tabel `jwt_revocations` (tabel 30).
+- Keputusan implementasi atau penghapusan dari rancangan ditunda.
 
 ### 4.2 Catalog
 
@@ -133,6 +145,17 @@ Kolom `id`, `created_at`, dan `updated_at` yang lazim pada Rails tidak selalu di
 - `payment_id` FK, `storage_key`, `original_filename`, `mime_type`, `file_size`, `status`, `uploaded_at`, `reviewed_at`.
 - Status proof: `submitted`, `approved`, `rejected`.
 - Mendukung riwayat unggah ulang.
+
+**payment_verification_events**
+- `payment_id` FK, `payment_proof_id` FK (nullable), `admin_id` FK users, `decision` (`approved`/`rejected`), `reason`, `created_at`.
+- Histori append-only keputusan verifikasi pembayaran (M7).
+- `payments.verified_by`, `verified_at`, `rejection_reason` tetap snapshot keputusan terakhir.
+
+**jwt_revocations**
+- `jti` (unique), `expires_at`.
+- Menyimpan JWT yang dicabut (logout) hingga expiry token asli.
+- Unique index pada `jti` mencegah duplikasi revocation.
+- Digunakan oleh `JwtService.revocation_status` (fail-closed: gagal baca = token dianggap revoked).
 
 ### 4.5 Inventory
 
@@ -190,7 +213,7 @@ Kolom `id`, `created_at`, dan `updated_at` yang lazim pada Rails tidak selalu di
 **audit_logs**
 - `user_id` nullable FK, `action`, `resource_type`, `resource_id`, `ip_address`, `user_agent`, `metadata`.
 - Jangan menyimpan password, token, secret, atau bukti transfer mentah.
-- Retensi IP/user-agent harus ditetapkan.
+- Retensi IP/user-agent: 90 hari (keputusan owner D2, D7). Setelah periode tersebut, data dihapus atau dianonimkan. Mekanisme cleanup harus menjaga catatan audit lainnya.
 
 **idempotency_keys**
 - `user_id` FK, `key`, `request_hash`, `response_status`, `response_body`, `resource_type`, `resource_id`, `expires_at`.
@@ -215,7 +238,7 @@ Kolom `id`, `created_at`, dan `updated_at` yang lazim pada Rails tidak selalu di
 
 - User 1—N Address.
 - User 1—N Order.
-- User 1—N AuthSession.
+- User 1—N AuthRateLimitCounter (via rate limiter).
 - User 1—1 Cart aktif.
 - Cart 1—N CartItem.
 - Product 1—N ProductImage.
@@ -223,6 +246,7 @@ Kolom `id`, `created_at`, dan `updated_at` yang lazim pada Rails tidak selalu di
 - Order 1—N OrderItem.
 - Order 1—1 Payment.
 - Payment 1—N PaymentProof.
+- Payment 1—N PaymentVerificationEvent.
 - Order 1—N InventoryReservation.
 - Product 1—N InventoryReservation.
 - Product 1—N InventoryMovement.
@@ -234,6 +258,7 @@ Kolom `id`, `created_at`, dan `updated_at` yang lazim pada Rails tidak selalu di
 - Wishlist 1—N WishlistItem.
 - Product 1—N Review.
 - User 1—N Notification.
+- JwtRevocation 1—1 (standalone, via jti unique index).
 
 Semua FK harus memiliki kebijakan delete yang mempertahankan histori transaksi. Jangan memakai cascade delete secara membabi buta pada order, payment, proof, movement, refund, dan audit.
 
@@ -258,14 +283,15 @@ Dalam transaksi:
 11. Commit.
 
 Concurrency harus diuji. SQLite satu writer aktif; gunakan transaksi singkat dan strategi serialisasi yang benar.
-
 ### Bukti pembayaran
+
 - Upload sebelum deadline.
 - Payment menjadi `waiting_verification`.
 - Reservation tetap ditahan selama pemeriksaan.
 - Admin approve/reject.
 - Rejection dan resubmission mengikuti tenggat yang berlaku.
 - SLA verifikasi admin belum ditetapkan dan harus menjadi kebijakan operasional.
+- Retensi bukti pembayaran: 1 tahun setelah transaksi selesai (keputusan owner D7). Setelah periode tersebut, file bukti dihapus atau dianonimkan.
 
 ### Approval pembayaran
 Dalam transaksi atomik:
@@ -289,12 +315,12 @@ Dalam transaksi atomik:
 - Jika dana telah diterima, buat/lanjutkan refund manual.
 - Refund `processed` hanya setelah pengembalian dana dikonfirmasi.
 - Jangan otomatis mengembalikan stok barang yang telah dikirim.
-
 ### Completion
+
 - Job memeriksa `shipped_at` dan status order.
 - Selesaikan setelah tujuh hari jika masih memenuhi syarat.
 - Jangan menyelesaikan order yang sudah berubah status atau memiliki sengketa aktif yang tercatat.
-- Jika fitur sengketa belum ada, nyatakan keterbatasan tersebut.
+- Fitur dispute/sengketa tidak termasuk dalam MVP (keputusan owner D8). Auto-completion tidak memiliki exception handling untuk sengketa. Pesanan yang sedang disengketakan tidak dapat ditahan melalui mekanisme dispute yang belum tersedia. Evaluasi fitur dispute pada milestone berikutnya.
 
 ## 7. Constraint dan index
 
@@ -312,6 +338,8 @@ Unique:
 - `wishlist_items(wishlist_id, product_id)`
 - `inventory_reservations(order_id, product_id)`
 - `reviews.order_item_id`
+- `auth_rate_limit_counters.key`
+- `jwt_revocations.jti`
 
 Check:
 - Harga, diskon, ongkir, total, stok, dan quantity tidak negatif.
@@ -329,6 +357,9 @@ Index:
 - Shipment by status.
 - Notification by user/read_at.
 - Refund by payment/status.
+- AuthRateLimitCounter by expires_at.
+- JwtRevocation by expires_at.
+- PaymentVerificationEvent by payment_id, admin_id, payment_proof_id.
 
 ## 8. Keamanan, privasi, backup
 
@@ -341,6 +372,17 @@ Index:
 - Retensi data ditentukan sebelum produksi.
 - Data pribadi ditangani sesuai ketentuan perlindungan data yang berlaku.
 - SQLite bukan database multi-instance; evaluasi PostgreSQL bila kebutuhan meningkat.
+
+### Kebijakan retensi data (keputusan owner D7)
+
+| Kategori | Periode retensi | Keterangan |
+|----------|-----------------|------------|
+| IP address / user-agent (`audit_logs`) | 90 hari | Dihapus atau dianonimkan setelah periode. Mekanisme cleanup menjaga catatan audit lainnya. |
+| Bukti pembayaran (`payment_proofs`) | 1 tahun setelah transaksi selesai | File bukti dihapus atau dianonimkan setelah periode. |
+| Audit log transaksi | 2 tahun | Catatan audit sistem pertahankan untuk keperluan investigasi. |
+| Data pelanggan | Selama akun aktif | Setelah penghapusan akun, evaluasi kewajiban retensi transaksi dan hukum. |
+
+Periode ini adalah kebijakan awal proyek yang harus ditinjau terhadap regulasi dan kebutuhan bisnis sebelum production — tidak diklaim sebagai kepastian kepatuhan hukum.
 
 ## 9. M8 schema decision
 

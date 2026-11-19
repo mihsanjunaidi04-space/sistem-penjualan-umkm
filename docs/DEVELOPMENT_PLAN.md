@@ -82,7 +82,7 @@
 
 **Gate:** rollback, duplicate request, concurrent checkout, overselling tests.
 
-Reservasi kedaluwarsa diproses oleh `InventoryReservationExpiryJob`. Pada lingkungan tanpa scheduler, jalankan `bin/rails runner "InventoryReservationExpiryJob.perform_now"` secara berkala melalui scheduler deployment yang dipilih. Scheduler produksi belum ditetapkan.
+Reservasi kedaluwarsa diproses oleh `InventoryReservationExpiryJob`. Pada lingkungan tanpa scheduler, jalankan `bin/rails runner "InventoryReservationExpiryJob.perform_now"` secara berkala melalui scheduler deployment yang dipilih. Solid Queue ditunda untuk MVP (keputusan owner D1). Kedua job (`InventoryReservationExpiryJob` dan `OrderCompletionJob`) tersedia dan dapat dijalankan manual. Aktivasi scheduler dievaluasi kembali pada tahap pre-production.
 
 ### M7 — Payment
 - Payment instructions.
@@ -92,8 +92,8 @@ Reservasi kedaluwarsa diproses oleh `InventoryReservationExpiryJob`. Pada lingku
 - Payment deadline handling.
 
 **Gate:** private file access, payment state machine, double approval prevention, stock conversion.
-
 ### M8 — Orders, cancellation, shipping
+
 - Customer order history/detail.
 - Cancellation request.
 - Admin approval/rejection.
@@ -101,6 +101,8 @@ Reservasi kedaluwarsa diproses oleh `InventoryReservationExpiryJob`. Pada lingku
 - Auto-completion job.
 
 Refund remains outside M8; decisions D2 and D5 are deferred.
+- **D2 (IP/User-Agent retention):** 90 hari. Cleanup mechanism ditunda hingga kebutuhan operasional jelas.
+- **D5 (AuditLog protection):** Model-level protection diterima untuk MVP. Database-level trigger ditunda ke M12 hardening.
 
 **Gate:** transition tests, refund limit, stock consistency, job idempotency.
 
@@ -223,6 +225,13 @@ Catat hardware, dataset, tool, konfigurasi, dan hasil aktual. Jangan menyatakan 
 
 Tahap awal menggunakan satu Rails instance dengan SQLite pada local disk. Pantau busy errors, write contention, ukuran database, backup, dan response time. Evaluasi PostgreSQL sebelum kebutuhan multi-instance atau write concurrency melampaui desain awal. Redis, object storage, queue, dan load balancer ditambahkan hanya berdasarkan kebutuhan terukur.
 
+### Deployment topology (keputusan owner D9)
+
+- Target deployment adalah single-host.
+- SQLite menggunakan persistent local storage.
+- Tidak menggunakan shared SQLite database untuk multi-host.
+- Reverse proxy diperbolehkan, tetapi konfigurasi trusted proxy harus spesifik dan diverifikasi (lihat D3 di SECURITY.md).
+
 ## 7. Definition of Done
 
 Task selesai jika:
@@ -246,3 +255,20 @@ Task selesai jika:
 7. Risiko/limitasi.
 8. Dokumentasi.
 9. Langkah berikutnya.
+
+## 9. Keputusan Owner (F05-06)
+
+Keputusan berikut telah disetujui pemilik proyek dan merupakan referensi untuk implementasi dan dokumentasi:
+
+| ID | Keputusan | Ringkasan | Lokasi dokumentasi |
+|----|-----------|-----------|-------------------|
+| D1 | Scheduler | Solid Queue ditunda untuk MVP. Job dijalankan manual via `bin/rails runner`. Aktivasi scheduler dievaluasi pada pre-production. | DEVELOPMENT_PLAN.md (M6, M8), SECURITY.md (M8 controls) |
+| D2 | IP/User-Agent retention | 90 hari. Cleanup mechanism ditunda. | DATABASE.md (section 8), SECURITY.md (section 14) |
+| D3 | Trusted proxy | Jangan percaya `X-Forwarded-For` secara default. Konfigurasi setelah proxy production diketahui. | SECURITY.md (section 7) |
+| D4 | Production logging | `RAILS_LOG_LEVEL=info` atau lebih tinggi. Hindari `debug`. `filter_parameters` tidak melindungi SQL bind values. | SECURITY.md (section 13) |
+| D5 | AuditLog protection | Model-level protection diterima untuk MVP. Bulk/raw SQL dapat bypass. Database trigger ditunda ke M12. | SECURITY.md (section 13), DATABASE.md (section 4.9) |
+| D6 | auth_sessions | Ditandai deferred, bukan bagian dari MVP. `jwt_revocations` adalah mekanisme aktual. | DATABASE.md (section 3, 4.1) |
+| D7 | Data retention policy | IP 90 hari; bukti pembayaran 1 tahun; audit log 2 tahun; data pelanggan selama akun aktif. Kebijakan awal, bukan kepastian hukum. | DATABASE.md (section 8), SECURITY.md (section 14), PRD.md (section 11) |
+| D8 | Dispute | Fitur dispute tidak termasuk MVP. Auto-completion tanpa dispute exception handling. | PRD.md (section 6.5), DATABASE.md (section 6.6) |
+| D9 | Deployment topology | Single-host. SQLite persistent local storage. Tidak ada shared SQLite multi-host. | DEVELOPMENT_PLAN.md (section 6), DATABASE.md (section 2) |
+| D10 | JWT production secret | Minimal 32 byte via `JWT_SECRET` atau Rails credentials `jwt.secret`. Verifikasi sebelum deployment. | SECURITY.md (section 12), AGENTS.md (section 12) |

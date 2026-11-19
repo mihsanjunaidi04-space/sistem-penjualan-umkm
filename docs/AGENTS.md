@@ -141,7 +141,7 @@ Jangan mengklaim test berhasil jika belum dijalankan. Laporkan output aktual dan
 
 ## 12. Dokumentasi
 
-Production JWT secret harus melalui `JWT_SECRET` atau Rails credentials `jwt.secret`, minimal 32 byte; jika tidak tersedia atau lemah, startup harus gagal. Development/test tidak menggunakan secret production. CORS development/test hanya mengizinkan `http://localhost:5173`; production menggunakan allowlist origin HTTPS dari `CORS_ALLOWED_ORIGINS`, tanpa wildcard.
+Production JWT secret harus melalui `JWT_SECRET` atau Rails credentials `jwt.secret`, minimal 32 byte; jika tidak tersedia atau lemah, startup harus gagal. Development/test tidak menggunakan secret production. CORS development/test hanya mengizinkan `http://localhost:5173`; production menggunakan allowlist origin HTTPS dari `CORS_ALLOWED_ORIGINS`, tanpa wildcard. Verifikasi konfigurasi JWT production secret sebelum deployment (keputusan owner D10).
 
 Deployment SQLite tahap awal dibatasi satu host/backend instance dengan persistent storage lokal. Jangan menganggap WAL mendukung multi-writer atau shared multi-host storage.
 

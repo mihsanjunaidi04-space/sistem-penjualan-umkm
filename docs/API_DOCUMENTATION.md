@@ -1,9 +1,9 @@
 # API DOCUMENTATION
 ## Sistem Informasi Penjualan UMKM
 
-**Versi:** 1.0  
-**Base path:** `/api/v1`  
-**Format:** JSON  
+**Versi:** 1.1
+**Base path:** `/api/v1`
+**Format:** JSON
 **Waktu:** ISO 8601 UTC  
 **Uang:** integer rupiah
 
@@ -154,8 +154,8 @@ Ownership wajib diperiksa. Cancellation request tidak langsung mengubah order st
 
 Customer:
 - GET `/customer/orders/:order_id/payment`
-- POST `/customer/payments/:id/proofs`
-- GET `/customer/payments/:id/proofs`
+- POST `/customer/orders/:order_id/payment-proof`
+- GET `/customer/orders/:order_id/payment-proofs/:proof_id`
 
 Admin:
 - GET `/admin/payments`
@@ -203,7 +203,7 @@ Status: `pending`, `processed`, `rejected`. MVP refund manual di luar payment ga
 ## 13. Shipping
 
 Customer:
-- GET `/customer/orders/:order_id/shipment`
+- GET `/customer/orders/:id` (mengandung data shipment jika ada)
 
 Admin:
 - GET `/admin/shipping-methods`
@@ -215,6 +215,8 @@ Admin:
 - PATCH `/admin/shipments/:id/deliver`
 
 Metode awal Reguler dan Express. Satu shipment per order untuk MVP. Admin mengelola manual. Status harus mengikuti transisi valid. Tidak ada klaim pelacakan otomatis kurir.
+
+**Catatan:** Endpoint `GET /customer/orders/:order_id/shipment` tidak tersedia sebagai route terpisah. Data shipment dikembalikan sebagai bagian dari response `GET /customer/orders/:id` (section 9).
 
 ## 14. Inventory
 
@@ -296,6 +298,8 @@ Refund:
 - `pending` → `processed` atau `rejected`.
 
 Backend memvalidasi aktor, status awal, izin, dan kondisi bisnis. Tidak ada arbitrary status update.
+
+**Batasan MVP (keputusan owner D8):** fitur dispute/sengketa tidak termasuk dalam MVP. Auto-completion tidak memiliki exception handling untuk sengketa. Jika fitur sengketa belum tersedia, jangan mengklaim sistem mampu mendeteksi sengketa.
 
 ## 20. Rate limiting baseline
 

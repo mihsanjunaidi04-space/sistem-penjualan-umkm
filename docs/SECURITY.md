@@ -89,6 +89,7 @@ Jangan mengandalkan route guard, hidden button, UUID, atau user ID dari browser 
 - Security headers: CSP, HSTS, X-Content-Type-Options, Referrer-Policy sesuai deployment.
 - Error tidak membocorkan stack trace, SQL, path, atau secret.
 - CORS diuji untuk origin lokal development dan allowlist production.
+- Trusted proxy: jangan mempercayai `X-Forwarded-For` secara default (keputusan owner D3). Trusted proxy hanya dikonfigurasi setelah alamat proxy production diketahui dan diverifikasi. Rate limiting menggunakan `REMOTE_ADDR` via Rack.
 
 ## 8. Input/output/database
 
@@ -155,7 +156,7 @@ Untuk bukti transfer:
 
 ## 12. Secrets and infrastructure
 
-- JWT production secret harus tersedia melalui `JWT_SECRET` atau Rails credentials `jwt.secret`, minimal 32 byte. Aplikasi gagal saat startup bila secret hilang/lemah tanpa membocorkan nilainya. Development/test memakai secret lokal terpisah.
+- JWT production secret harus tersedia melalui `JWT_SECRET` atau Rails credentials `jwt.secret`, minimal 32 byte (keputusan owner D10). Aplikasi gagal saat startup bila secret hilang/lemah tanpa membocorkan nilainya. Development/test memakai secret lokal terpisah. Verifikasi konfigurasi sebelum deployment. Aplikasi tidak boleh dijalankan dengan secret production yang hilang atau lemah.
 - CORS production wajib menggunakan daftar origin HTTPS eksplisit; konfigurasi kosong, origin tidak valid, HTTP, atau wildcard ditolak.
 - Secret melalui environment/secret manager.
 - `.env`, credential, private key, database produksi, backup tidak masuk Git.
@@ -180,6 +181,19 @@ Audit aktivitas:
 
 Jangan log password, token, secret, atau bukti transfer mentah. Audit log aplikasi bersifat append-only secara konvensi, bukan immutable secara kriptografis. Salin log kritis ke penyimpanan terpisah.
 
+### Production logging (keputusan owner D4)
+
+- `RAILS_LOG_LEVEL=info` atau level yang lebih tinggi untuk production normal.
+- Hindari `debug` di production karena dapat mengekspos SQL bind values.
+- Konfigurasi aktual harus diverifikasi sebelum deployment.
+- `filter_parameters` tidak dianggap sebagai perlindungan SQL bind values — parameter filtering hanya berlaku untuk request parameters, bukan Active Record SQL bind payloads.
+
+### AuditLog protection (keputusan owner D5)
+
+- Model-level protection diterima untuk MVP (`readonly?` pada model `AuditLog` mencegah `update`, `update!`, `destroy`, `destroy!`, `delete` pada record yang sudah tersimpan).
+- Bulk operations (`delete_all`, `update_all`, `update_columns`) dan raw SQL dapat melewati perlindungan model-level. Ini bukan database-level immutability.
+- Keterbatasan ini dicatat sebagai residual risk. Database trigger ditunda untuk evaluasi hardening berikutnya (M12).
+
 Prosedur insiden:
 1. Identifikasi dan klasifikasi.
 2. Batasi dampak.
@@ -198,6 +212,17 @@ Prosedur insiden:
 - Jangan mengirim data pribadi ke log/analytics yang tidak diperlukan.
 - Penghapusan/anonimisasi mempertimbangkan histori transaksi dan kewajiban hukum.
 - Kebijakan final ditinjau terhadap ketentuan perlindungan data yang berlaku.
+
+### Kebijakan retensi data (keputusan owner D2, D7)
+
+| Kategori | Periode retensi | Keterangan |
+|----------|-----------------|------------|
+| IP address / user-agent (`audit_logs`) | 90 hari | Dihapus atau dianonimkan setelah periode. Mekanisme cleanup menjaga catatan audit lainnya. |
+| Bukti pembayaran (`payment_proofs`) | 1 tahun setelah transaksi selesai | File bukti dihapus atau dianonimkan setelah periode. |
+| Audit log transaksi | 2 tahun | Catatan audit sistem pertahankan untuk keperluan investigasi. |
+| Data pelanggan | Selama akun aktif | Setelah penghapusan akun, evaluasi kewajiban retensi transaksi dan hukum. |
+
+Periode ini adalah kebijakan awal proyek yang harus ditinjau terhadap regulasi dan kebutuhan bisnis sebelum production — tidak diklaim sebagai kepastian kepatuhan hukum.
 
 ## 15. Security test checklist
 

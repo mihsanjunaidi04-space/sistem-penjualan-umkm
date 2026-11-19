@@ -126,13 +126,14 @@ Bukti transfer yang diunggah bukan bukti dana telah diterima. Hanya verifikasi a
 - Pembayaran disetujui: reservasi dikonversi dan stok fisik dikurangi.
 - Order kedaluwarsa atau pembatalan disetujui: reservasi dilepas.
 - Semua perubahan stok dicatat.
-
 ### 6.5 Pengiriman dan penyelesaian
+
 - Admin mengemas pesanan dan memperbarui shipment.
 - Metode awal: Reguler dan Express.
 - Pengelolaan pengiriman dan nomor pelacakan dilakukan manual.
 - Ketika benar-benar dikirim, `shipped_at` dicatat.
 - Order dapat otomatis selesai tujuh hari setelah `shipped_at` jika masih berstatus shipped dan tidak ada laporan/sengketa aktif yang tercatat.
+- Fitur dispute/sengketa **tidak termasuk dalam MVP**. Auto-completion tidak memiliki exception handling untuk sengketa. Pesanan yang sedang disengketakan tidak dapat ditahan melalui mekanisme dispute yang belum tersedia. Evaluasi fitur dispute dilakukan pada milestone berikutnya.
 
 **Catatan:** fitur laporan/sengketa harus tersedia dan didefinisikan sebelum pengecualian sengketa pada auto-completion diklaim telah bekerja. Jika belum tersedia, jangan mengklaim sistem mampu mendeteksi sengketa.
 
@@ -271,5 +272,18 @@ Sebelum produksi, tetapkan:
 6. Kebijakan retensi bukti transfer, audit log, dan data pelanggan.
 7. Aturan biaya pengiriman dan estimasi waktu Reguler/Express.
 8. Kebijakan pajak atau biaya tambahan jika memang berlaku.
+
+### Keputusan owner yang telah disetujui (F05-06)
+
+- **D1 Scheduler:** Solid Queue ditunda untuk MVP. `InventoryReservationExpiryJob` dan `OrderCompletionJob` dijalankan manual melalui `bin/rails runner`. Aktivasi scheduler dievaluasi kembali pada tahap pre-production.
+- **D2 IP/User-Agent retention:** Retensi IP address dan user-agent adalah 90 hari. Setelah periode tersebut, data dihapus atau dianonimkan.
+- **D3 Trusted proxy:** Jangan mempercayai `X-Forwarded-For` secara default. Trusted proxy hanya dikonfigurasi setelah alamat proxy production diketahui dan diverifikasi.
+- **D4 Production logging:** `RAILS_LOG_LEVEL=info` atau lebih tinggi untuk production normal. Hindari `debug` di production. `filter_parameters` tidak dianggap sebagai perlindungan SQL bind values.
+- **D5 AuditLog protection:** Model-level protection diterima untuk MVP. Bulk operations dan raw SQL dapat melewati perlindungan tersebut. Database trigger ditunda untuk evaluasi hardening berikutnya.
+- **D6 auth_sessions:** Ditandai deferred, bukan bagian dari implementasi MVP. `jwt_revocations` merupakan mekanisme pencabutan JWT aktual.
+- **D7 Data retention policy:** IP address/user-agent 90 hari; bukti pembayaran 1 tahun setelah transaksi selesai; audit log transaksi 2 tahun; data pelanggan selama akun aktif. Periode ini kebijakan awal proyek yang harus ditinjau terhadap regulasi dan kebutuhan bisnis sebelum production — tidak diklaim sebagai kepastian kepatuhan hukum.
+- **D8 Dispute:** Fitur dispute tidak termasuk MVP. Auto-completion belum memiliki dispute exception handling.
+- **D9 Deployment topology:** Target deployment single-host. SQLite menggunakan persistent local storage. Tidak menggunakan shared SQLite database untuk multi-host.
+- **D10 JWT production secret:** Production wajib menggunakan secret minimal 32 byte melalui `JWT_SECRET` atau Rails credentials `jwt.secret`. Verifikasi konfigurasi sebelum deployment.
 
 Jangan mengarang nilai atau kebijakan tersebut selama implementasi.
