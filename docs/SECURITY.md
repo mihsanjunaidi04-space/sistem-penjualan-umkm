@@ -250,6 +250,48 @@ Fitur sensitif memerlukan authentication, authorization, ownership, validation, 
 ## 17. Referensi
 
 Gunakan versi resmi terkini OWASP Top 10, OWASP API Security Top 10, OWASP ASVS, dokumentasi keamanan Rails, dokumentasi SQLite, serta ketentuan perlindungan data pribadi yang berlaku. Referensi bukan bukti sertifikasi atau kepatuhan otomatis.
+
+## 18. PaymentProof Cleanup — Residual Security Considerations
+
+### TOCTOU (Time-of-Check-Time-of-Use)
+
+`PaymentProofCleanupService` melakukan penghapusan file fisik setelah validasi melalui `VerifiedStorageFile.open`. Pola ini memiliki **residual TOCTOU risk** yang tidak dapat dihilangkan sepenuhnya secara portabel:
+
+- Validasi descriptor-based (`VerifiedStorageFile.open` dengan `NOFOLLOW` + `File.identical?`) memastikan file yang dibuka adalah file yang divalidasi.
+- `File.unlink(path)` menggunakan path, bukan file descriptor. Window antara validasi dan unlink (biasanya < 1ms) dapat dieksploitasi untuk swap file.
+- **Linux**: `NOFOLLOW` tersedia, melindungi `open`; `unlink` tetap path-based.
+- **Windows**: `File::NOFOLLOW` tidak tersedia; validasi descriptor tidak memproteksi dari symlink swap.
+
+**Mitigasi yang diterapkan:**
+1. Re-validasi tepat sebelum `File.unlink` (minimasi window).
+2. Direktori `storage/private/payment_proofs` **wajib** dikunci aksesnya:
+   - Linux: mode `0750`, owned by app user.
+   - Windows: ACL write hanya untuk app service account + Administrators.
+3. `VerifiedStorageFile` menolak symlink component manapun di path relatif root.
+4. Logging kegagalan untuk audit trail.
+
+**Asumsi filesystem (wajib dipenuhi deployment):**
+- Single-host, local persistent storage (keputusan D9).
+- Direktori storage tidak di-mount/bind ulang saat runtime.
+- Tidak ada proses lain yang menulis ke direktori storage selain aplikasi.
+
+### Duplicate Reference Protection
+
+Sebelum penghapusan, service memeriksa `PaymentProof.where(storage_key: ...).where.not(id: ...).exists?`. Jika ada referensi lain:
+- File **tidak dihapus** (kategori `skipped`).
+- Kedua record `PaymentProof` utuh.
+- Tidak ada unique index database (collision probability 2^-256 negligible).
+
+### Dry-Run Default
+
+`dry_run: true` adalah default. Eksekusi nyata (`dry_run: false`) **hanya** dijalankan setelah:
+1. Dry-run diverifikasi statistiknya.
+2. Backup database DAN direktori `storage/private/payment_proofs` tersedia.
+
+### Tidak Ada AuditLog Event
+
+Job ini maintenance sistem, bukan aksi user/admin. Tidak membuat `AuditLog` entry untuk menghindari pollution audit trail 2-tahun. Logging via Rails logger (structured, no PII).
+
 # M7 controls
 
 - Upload memeriksa ukuran, ekstensi yang diizinkan, dan MIME berdasarkan isi file menggunakan Marcel.

@@ -1,4 +1,4 @@
-# MANUAL JOB RUNBOOK â€” Scheduled Jobs (MVP)
+# MANUAL JOB RUNBOOK — Scheduled Jobs (MVP)
 
 **Versi:** 1.0
 **Project:** Sistem Informasi Penjualan UMKM
@@ -34,7 +34,7 @@ cd D:\sistem-penjualan-umkm\backend
 
 - Operator harus memiliki akses ke terminal/backend host.
 - Operator harus memahami status order dan reservasi sebelum menjalankan job.
-- Tidak ada autentikasi tambahan untuk `bin/rails runner` â€” akses ke host dianggap sebagai otorisasi operasional.
+- Tidak ada autentikasi tambahan untuk `bin/rails runner` — akses ke host dianggap sebagai otorisasi operasional.
 
 ---
 
@@ -175,7 +175,7 @@ bin/rails runner "Order.where(status: 'shipped').where('shipped_at > ?', 7.days.
 
 ### Idempotency
 
-Keduajob aman dijalankan berulang kali (keputusan owner D1, PRD section 9):
+Kedua job aman dijalankan berulang kali (keputusan owner D1, PRD section 9):
 
 - `InventoryReservationExpiryService`: double-check `status = "reserved"` di dalam transaksi sebelum mengubah. Reservation yang sudah `released` atau `converted` akan dilewati.
 - `OrderCompletionService`: double-check `status = "shipped"` di dalam transaksi sebelum mengubah. Order yang sudah `completed` akan dilewati.
@@ -244,7 +244,6 @@ bin/rails runner "AuditLog.where(action: ['reservation_released', 'order_complet
 - Tidak ada worker Solid Queue aktif.
 - Keterlambatan eksekusi dapat menyebabkan stok tertahan (reservation yang expired belum dilepaskan) atau pesanan tetap status `shipped` (belum auto-complete).
 - SQLite menggunakan single-host persistent storage (keputusan owner D9).
-- Tidak ada cleanup job untuk bukti pembayaran (retensi kebijakan D7 masih belum diimplementasikan sebagai kode).
 - Fitur dispute/sengketa tidak termasuk dalam MVP (keputusan owner D8). Auto-completion tidak memiliki exception handling untuk sengketa.
 
 ## G. AuditLog PII Anonymization
@@ -317,17 +316,139 @@ bin/rails runner "puts AuditLog.where('created_at <= ?', 90.days.ago).where('ip_
 
 ---
 
-## Referensi
+## H. PaymentProof Physical-File Cleanup
 
-- `docs/DEVELOPMENT_PLAN.md` â€” M6, M8, keputusan owner D1
-- `docs/DATABASE.md` â€” Section 4.5 (inventory_reservations), Section 4.6 (shipments), Section 6 (aturan transaksi)
-- `docs/PRD.md` â€” Section 6.4 (stok), Section 6.5 (pengiriman dan penyelesaian), Section 9 (FR-34 scheduled job idempotent)
-- `docs/SECURITY.md` â€” Section 9 (M8 controls), Section 11 (SQLite boundaries)
-- `backend/app/jobs/inventory_reservation_expiry_job.rb`
-- `backend/app/jobs/order_completion_job.rb`
-- `backend/app/services/inventory_reservation_expiry_service.rb`
-- `backend/app/services/order_completion_service.rb`
+### Fungsi job
+
+`PaymentProofCleanupJob` (backend/app/jobs/payment_proof_cleanup_job.rb) mendelegasikan ke `PaymentProofCleanupService.call` (backend/app/services/payment_proof_cleanup_service.rb).
+
+Service:
+- Mencari `PaymentProof` yang memenuhi **salah satu** dari tiga kombinasi eligible:
+  1. `payments.status = 'paid'` AND `orders.status = 'completed'` AND `orders.completed_at <= cutoff`
+  2. `payments.status = 'rejected'` AND `orders.status = 'cancelled'` AND `orders.cancelled_at <= cutoff`
+  3. `payments.status = 'expired'` AND `orders.status = 'cancelled'` AND `orders.cancelled_at <= cutoff`
+- `cutoff = waktu eksekusi - 1 tahun`
+- Membatasi maksimal 100 kandidat per eksekusi.
+- Urutan pemrosesan: `created_at` lalu `id` (deterministik).
+- Untuk setiap kandidat:
+  1. Validasi format `storage_key` (64 hex + ekstensi jpg/jpeg/png/webp).
+  2. Cek referensi ganda: jika `PaymentProof` lain menggunakan `storage_key` yang sama -> **skip** (file tidak dihapus).
+  3. Buka file melalui `VerifiedStorageFile.open` (validasi path, symlink, ukuran, descriptor).
+  4. Tutup file handle.
+  5. **Dry-run**: catat sebagai `would_delete`, **jangan** hapus file.
+  6. **Eksekusi nyata**: `File.unlink(validated_path)`, catat sebagai `deleted`.
+- Tidak mengubah record database (`PaymentProof`, `PaymentVerificationEvent`, `Payment`, `Order`).
+- Tidak membuat `AuditLog` event (ini job maintenance, bukan aksi user/admin).
+
+### Kapan dijalankan
+
+- Bulanan (retensi 1 tahun setelah transaksi terminal: `completed_at` atau `cancelled_at`).
+- Setelah memverifikasi tidak ada order aktif yang merujuk bukti yang eligible.
+- Sebelum backup storage untuk mengurangi ukuran backup.
+
+### Command aktual
+
+```bash
+# Dry-run (DEFAULT, aman) -- jalankan SELALU terlebih dahulu
+bin/rails runner "PaymentProofCleanupJob.perform_now"
+
+# Dry-run dengan cutoff custom (testing)
+bin/rails runner "PaymentProofCleanupJob.perform_now(cutoff: Time.current - 366.days)"
+
+# Eksekusi NYATA -- hanya setelah dry-run diverifikasi
+bin/rails runner "PaymentProofCleanupJob.perform_now(dry_run: false)"
+
+# Eksekusi nyata dengan environment tertentu:
+# PowerShell (Windows)
+$env:RAILS_ENV="production"; bin/rails runner "PaymentProofCleanupJob.perform_now(dry_run: false)"
+
+# CMD (Windows)
+set RAILS_ENV=production
+bin/rails runner "PaymentProofCleanupJob.perform_now(dry_run: false)"
+```
+
+### Prasyarat Keamanan Filesystem (WAJIB)
+
+**Linux/Unix:**
+```bash
+# Direktori storage harus dimiliki user aplikasi, mode 0750
+chown appuser:appgroup storage/private/payment_proofs
+chmod 0750 storage/private/payment_proofs
+# Hanya app user + group yang bisa write; world no access
+```
+
+**Windows (ACL, BUKAN mode POSIX):**
+```powershell
+# Hapus inheritance, berikan write hanya ke app service account + Administrators
+icacls "storage\private\payment_proofs" /inheritance:r
+icacls "storage\private\payment_proofs" /grant "APP_USER:(OI)(CI)F"
+icacls "storage\private\payment_proofs" /grant "Administrators:(OI)(CI)F"
+icacls "storage\private\payment_proofs" /remove "Users" "Everyone"
+```
+
+**Deployment harus menjamin:** single-host, local persistent storage (keputusan D9). Tidak shared storage multi-host.
+
+### Hasil yang diharapkan
+
+- **Dry-run**: Statistik `processed`, `would_delete`, `missing`, `failed`, `skipped`. `deleted = 0`. File **tidak** dihapus. Database **tidak** berubah.
+- **Eksekusi nyata**: Statistik `processed`, `deleted`, `missing`, `failed`, `skipped`. `would_delete = 0`. File terhapus. Database **tidak** berubah.
+- File yang hilang (ENOENT) -> `missing`, **bukan** error.
+- Permission error (EACCES/EPERM) -> `failed`, **bukan** `missing`.
+- Referensi ganda -> `skipped`, file **tetap ada**, kedua record `PaymentProof` utuh.
+
+### Cara memverifikasi hasil
+
+```ruby
+# Cek statistik batch terakhir (dari log Rails)
+# tail -f log/development.log | grep PaymentProofCleanup
+
+# Cek file yang seharusnya terhapus
+bin/rails runner "
+  cutoff = 1.year.ago
+  PaymentProof.joins(payment: :order)
+    .where(\"(payments.status = 'paid' AND orders.status = 'completed' AND orders.completed_at <= ?) OR (payments.status = 'rejected' AND orders.status = 'cancelled' AND orders.cancelled_at <= ?) OR (payments.status = 'expired' AND orders.status = 'cancelled' AND orders.cancelled_at <= ?)\", cutoff, cutoff, cutoff)
+    .each { |p| puts \"#{p.id}: key=#{p.storage_key} exists=#{File.exist?(Rails.root.join('storage','private','payment_proofs',p.storage_key))}\" }
+"
+
+# Verifikasi PaymentProof dan PaymentVerificationEvent tetap ada
+bin/rails runner "puts PaymentProof.count"
+bin/rails runner "puts PaymentVerificationEvent.count"
+```
+
+### Risiko Residual (WAJIB DIPAHAMI)
+
+1. **TOCTOU (Time-of-Check-Time-of-Use)**: Window antara `VerifiedStorageFile.open` validasi dan `File.unlink` tidak bisa dihilangkan sepenuhnya (path-based unlink). Mitigasi: re-validasi tepat sebelum unlink, direktori storage `0750`/ACL app-only, symlink ditolak. **Residual risk tetap ada**.
+
+2. **Windows tanpa `File::NOFOLLOW`**: Descriptor validation tidak memproteksi dari symlink swap pada Windows. ACL ketat direktori storage **wajib**.
+
+3. **Direktori storage diganti (mount/bind)**: Tidak termitigasi di application layer. Deployment single-host local disk (D9) mengurangi risiko.
+
+4. **File dihapus eksternal antara dry-run dan eksekusi**: Dry-run `would_delete` -> eksekusi `missing`. Ini perilaku yang diharapkan (idempotent).
+
+5. **Backup SEBELUM eksekusi nyata**: **WAJIB** backup database dan direktori `storage/private/payment_proofs` sebelum menjalankan `dry_run: false` pada production.
+
+### Langkah pemulihan jika eksekusi gagal
+
+1. File terhapus tapi seharusnya tidak: **Tidak bisa dipulihkan otomatis**. Restore dari backup storage.
+2. Database tidak berubah -- tidak perlu rollback DB.
+3. Job aman dijalankan ulang (idempotent): file yang sudah terhapus -> `missing`; yang gagal permission -> `failed` (perlu perbaiki ACL lalu jalankan ulang).
 
 ---
 
-**PERINGATAN:** Jangan menjalankan job ini terhadap database production tanpa memahami dampaknya. Pastikan backup database tersedia sebelum melakukan operasi massal pada produksi.
+## Referensi
+
+- `docs/DEVELOPMENT_PLAN.md` -- M6, M8, keputusan owner D1
+- `docs/DATABASE.md` -- Section 4.5 (inventory_reservations), Section 4.6 (shipments), Section 6 (aturan transaksi)
+- `docs/PRD.md` -- Section 6.4 (stok), Section 6.5 (pengiriman dan penyelesaian), Section 9 (FR-34 scheduled job idempotent)
+- `docs/SECURITY.md` -- Section 9 (M8 controls), Section 11 (SQLite boundaries), Section 14 (retensi)
+- `backend/app/jobs/inventory_reservation_expiry_job.rb`
+- `backend/app/jobs/order_completion_job.rb`
+- `backend/app/jobs/payment_proof_cleanup_job.rb`
+- `backend/app/services/inventory_reservation_expiry_service.rb`
+- `backend/app/services/order_completion_service.rb`
+- `backend/app/services/payment_proof_cleanup_service.rb`
+- `backend/app/services/data_retention_cleanup_service.rb`
+
+---
+
+**PERINGATAN:** Jangan menjalankan job ini terhadap database production tanpa memahami dampaknya. Pastikan backup database DAN direktori storage tersedia sebelum melakukan operasi massal pada produksi. **SELALU jalankan dry-run terlebih dahulu.**
