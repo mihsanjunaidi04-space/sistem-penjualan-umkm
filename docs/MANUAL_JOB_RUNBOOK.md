@@ -244,8 +244,76 @@ bin/rails runner "AuditLog.where(action: ['reservation_released', 'order_complet
 - Tidak ada worker Solid Queue aktif.
 - Keterlambatan eksekusi dapat menyebabkan stok tertahan (reservation yang expired belum dilepaskan) atau pesanan tetap status `shipped` (belum auto-complete).
 - SQLite menggunakan single-host persistent storage (keputusan owner D9).
-- Tidak ada cleanup job untuk audit log atau bukti pembayaran (retensi kebijakan D7 masih belum diimplementasikan sebagai kode).
+- Tidak ada cleanup job untuk bukti pembayaran (retensi kebijakan D7 masih belum diimplementasikan sebagai kode).
 - Fitur dispute/sengketa tidak termasuk dalam MVP (keputusan owner D8). Auto-completion tidak memiliki exception handling untuk sengketa.
+
+## G. AuditLog PII Anonymization
+
+### Fungsi job
+
+`DataRetentionCleanupJob` (backend/app/jobs/data_retention_cleanup_job.rb:1-7) mendelegasikan ke `DataRetentionCleanupService.anonymize_ip_user_agent!` (backend/app/services/data_retention_cleanup_service.rb:1-42).
+
+Service:
+- Mencari semua `AuditLog` dengan `created_at <= cutoff` dan (`ip_address` atau `user_agent` masih terisi).
+- Membatasi maksimal 100 record per pemanggilan.
+- Mengubah `ip_address` dan `user_agent` menjadi `NULL`.
+- Record `AuditLog` tetap dipertahankan (tidak dihapus).
+- `action`, `user_id`, `created_at`, dan data transaksi lainnya tidak berubah.
+- Idempotent: dapat dijalankan berulang kali tanpa efek samping.
+
+### Kapan dijalankan
+
+- Setiap kali ingin membersihkan data PII (IP address dan user-agent) dari audit log yang berusia lebih dari atau sama dengan 90 hari.
+- Sebelum melaporkan audit log ke penyimpanan eksternal untuk investigasi jangka panjang.
+
+### Command aktual
+
+```bash
+bin/rails runner "DataRetentionCleanupJob.perform_now"
+```
+
+Atau dengan cutoff custom (untuk testing):
+
+```bash
+bin/rails runner "DataRetentionCleanupJob.perform_now(before: Time.current - 100.days)"
+```
+
+Atau dengan environment tertentu:
+
+```bash
+# PowerShell (Windows)
+$env:RAILS_ENV="production"; bin/rails runner "DataRetentionCleanupJob.perform_now"
+
+# CMD (Windows)
+set RAILS_ENV=production
+bin/rails runner "DataRetentionCleanupJob.perform_now"
+```
+
+### Hasil yang diharapkan
+
+- Satu pemanggilan `DataRetentionCleanupJob.perform_now` menggunakan cutoff default 90 hari sebelumnya (`90.days.ago` dari waktu eksekusi).
+- Semua `AuditLog` dengan `created_at` lebih dari atau sama dengan 90 hari yang lalu akan memiliki `ip_address` dan `user_agent` diubah menjadi `NULL`.
+- Record `AuditLog` tetap ada dan dapat diakses untuk keperluan investigasi.
+- `action`, `user_id`, `created_at` tidak berubah.
+- Maksimal 100 record diproses per pemanggilan. Jalankan ulang perintah untuk memproses batch berikutnya.
+
+### Cara memverifikasi hasil
+
+```ruby
+# Cek audit log yang sudah dianonimkan
+bin/rails runner "AuditLog.where(ip_address: nil, user_agent: nil).where('created_at <= ?', 90.days.ago).each { |a| puts \"#{a.id}: action=#{a.action}, created_at=#{a.created_at}\" }"
+
+# Cek audit log yang belum dianonimkan (masih dalam 90 hari)
+bin/rails runner "AuditLog.where('created_at > ?', 90.days.ago).where('ip_address IS NOT NULL OR user_agent IS NOT NULL').each { |a| puts \"#{a.id}: action=#{a.action}, ip=#{a.ip_address}\" }"
+
+# Hitung jumlah record yang perlu dianonimkan
+bin/rails runner "puts AuditLog.where('created_at <= ?', 90.days.ago).where('ip_address IS NOT NULL OR user_agent IS NOT NULL').count"
+```
+
+### Risiko residual
+
+- `update_all` melewati `readonly?` pada model `AuditLog` (keputusan owner D5 diterima untuk MVP). Ini bukan database-level immutability. Database-level trigger ditunda untuk evaluasi hardening berikutnya (M12).
+- Tidak ada mekanisme rollback otomatis setelah `update_all` dieksekusi. Pastikan backup database tersedia sebelum melakukan operasi massal pada produksi.
 
 ---
 
