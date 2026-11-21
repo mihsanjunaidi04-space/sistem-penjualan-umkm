@@ -2,12 +2,13 @@ class PaymentProofCleanupService
   BATCH_SIZE = 100
   STORAGE_KEY_FORMAT = /\A\h{64}\.(?:jpe?g|png|webp)\z/i
 
-  def self.call(dry_run: true, cutoff: Time.current - 1.year)
-    new(cutoff: cutoff).call(dry_run: dry_run)
+  def self.call(dry_run: true, cutoff: Time.current - 1.year, root: PrivatePaymentProofStorage::ROOT)
+    new(cutoff: cutoff, root: root).call(dry_run: dry_run)
   end
 
-  def initialize(cutoff:)
+  def initialize(cutoff:, root: PrivatePaymentProofStorage::ROOT)
     @cutoff = cutoff
+    @root = root
   end
 
   def call(dry_run:)
@@ -43,7 +44,7 @@ class PaymentProofCleanupService
 
   private
 
-  attr_reader :cutoff
+  attr_reader :cutoff, :root
 
   def eligible_candidates
     PaymentProof
@@ -89,7 +90,7 @@ class PaymentProofCleanupService
 
   def check_file_access(storage_key)
     # Check if file exists on disk first
-    candidate = PrivatePaymentProofStorage::ROOT.join(storage_key)
+    candidate = root.join(storage_key)
     return :missing unless candidate.exist?
     # File exists and key format is valid = would_delete for dry-run
     :would_delete
@@ -100,7 +101,7 @@ class PaymentProofCleanupService
     return :skipped if duplicate_reference?(proof)
     return :failed  unless valid_storage_key?(proof.storage_key)
 
-    candidate_path = PrivatePaymentProofStorage::ROOT.join(proof.storage_key).expand_path.to_s
+    candidate_path = root.join(proof.storage_key).expand_path.to_s
 
     # Check if file exists first
     unless File.exist?(candidate_path)

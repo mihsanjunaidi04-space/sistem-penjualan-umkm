@@ -1,6 +1,16 @@
 require 'rails_helper'
+require 'tmpdir'
+require 'pathname'
 
 RSpec.describe PaymentProofCleanupService, type: :service do
+  around do |example|
+    Dir.mktmpdir('payment-proof-cleanup-service-') do |dir|
+      @tmp_root = Pathname.new(dir)
+      example.run
+    end
+  end
+
+  let(:root) { @tmp_root }
   let(:fixed_now) { Time.utc(2026, 11, 20, 10, 0, 0) }
   let(:cutoff) { fixed_now - 1.year }
 
@@ -66,19 +76,10 @@ RSpec.describe PaymentProofCleanupService, type: :service do
   end
 
   def create_file_on_disk(storage_key)
-    path = PrivatePaymentProofStorage::ROOT.join(storage_key)
+    path = root.join(storage_key)
     path.dirname.mkpath
     File.binwrite(path, 'fake image content')
     path
-  end
-
-  before do
-    PrivatePaymentProofStorage::ROOT.rmtree if PrivatePaymentProofStorage::ROOT.exist?
-  end
-
-  after do
-    # Clean up after each test to ensure isolation
-    PrivatePaymentProofStorage::ROOT.rmtree if PrivatePaymentProofStorage::ROOT.exist?
   end
 
   describe '.call' do
@@ -91,7 +92,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
         )
         create_file_on_disk(proof.storage_key)
 
-        stats = described_class.call(dry_run: true, cutoff: cutoff)
+        stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
 
         expect(stats[:processed]).to eq(1)
         expect(stats[:deleted]).to eq(0)
@@ -110,8 +111,8 @@ RSpec.describe PaymentProofCleanupService, type: :service do
         create_file_on_disk(proof.storage_key)
 
         # In dry_run mode, File.unlink should not be called
-        expect { described_class.call(dry_run: true, cutoff: cutoff) }
-          .not_to change { PrivatePaymentProofStorage::ROOT.exist? }
+        expect { described_class.call(dry_run: true, cutoff: cutoff, root: root) }
+          .not_to change { root.join(proof.storage_key).exist? }
       end
 
       it 'does not modify database' do
@@ -122,7 +123,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
         )
         create_file_on_disk(proof.storage_key)
 
-        expect { described_class.call(dry_run: true, cutoff: cutoff) }
+        expect { described_class.call(dry_run: true, cutoff: cutoff, root: root) }
           .to change { PaymentProof.count }.by(0)
           .and change { Payment.count }.by(0)
           .and change { Order.count }.by(0)
@@ -138,7 +139,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
         )
         create_file_on_disk(proof.storage_key)
 
-        stats = described_class.call(dry_run: false, cutoff: cutoff)
+        stats = described_class.call(dry_run: false, cutoff: cutoff, root: root)
 
         expect(stats[:processed]).to eq(1)
         expect(stats[:deleted]).to eq(1)
@@ -146,7 +147,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
         expect(stats[:missing]).to eq(0)
         expect(stats[:failed]).to eq(0)
         expect(stats[:skipped]).to eq(0)
-        expect(File.exist?(PrivatePaymentProofStorage::ROOT.join(proof.storage_key))).to be false
+        expect(File.exist?(root.join(proof.storage_key))).to be false
       end
 
       it 'returns missing for non-existent file' do
@@ -156,7 +157,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
           completed_at: cutoff - 1.day
         )
 
-        stats = described_class.call(dry_run: false, cutoff: cutoff)
+        stats = described_class.call(dry_run: false, cutoff: cutoff, root: root)
 
         expect(stats[:processed]).to eq(1)
         expect(stats[:deleted]).to eq(0)
@@ -174,7 +175,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
         )
         create_file_on_disk(proof.storage_key)
 
-        expect { described_class.call(dry_run: false, cutoff: cutoff) }
+        expect { described_class.call(dry_run: false, cutoff: cutoff, root: root) }
           .to change { PaymentProof.count }.by(0)
           .and change { Payment.count }.by(0)
           .and change { Order.count }.by(0)
@@ -193,7 +194,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
         )
         create_file_on_disk(proof.storage_key)
 
-        stats = described_class.call(dry_run: true, cutoff: cutoff)
+        stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
         expect(stats[:processed]).to eq(1)
       end
 
@@ -205,7 +206,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
         )
         create_file_on_disk(proof.storage_key)
 
-        stats = described_class.call(dry_run: true, cutoff: cutoff)
+        stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
         expect(stats[:processed]).to eq(1)
       end
 
@@ -217,7 +218,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
         )
         create_file_on_disk(proof.storage_key)
 
-        stats = described_class.call(dry_run: true, cutoff: cutoff)
+        stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
         expect(stats[:processed]).to eq(1)
       end
 
@@ -229,7 +230,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
         )
         create_file_on_disk(proof.storage_key)
 
-        stats = described_class.call(dry_run: true, cutoff: cutoff)
+        stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
         expect(stats[:processed]).to eq(1)
       end
     end
@@ -242,7 +243,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
         )
         create_file_on_disk(proof.storage_key)
 
-        stats = described_class.call(dry_run: true, cutoff: cutoff)
+        stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
         expect(stats[:processed]).to eq(0)
       end
 
@@ -253,7 +254,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
         )
         create_file_on_disk(proof.storage_key)
 
-        stats = described_class.call(dry_run: true, cutoff: cutoff)
+        stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
         expect(stats[:processed]).to eq(0)
       end
 
@@ -264,7 +265,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
         )
         create_file_on_disk(proof.storage_key)
 
-        stats = described_class.call(dry_run: true, cutoff: cutoff)
+        stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
         expect(stats[:processed]).to eq(0)
       end
 
@@ -276,7 +277,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
         )
         create_file_on_disk(proof.storage_key)
 
-        stats = described_class.call(dry_run: true, cutoff: cutoff)
+        stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
         expect(stats[:processed]).to eq(0)
       end
 
@@ -287,7 +288,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
         )
         create_file_on_disk(proof.storage_key)
 
-        stats = described_class.call(dry_run: true, cutoff: cutoff)
+        stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
         expect(stats[:processed]).to eq(0)
       end
 
@@ -298,7 +299,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
         )
         create_file_on_disk(proof.storage_key)
 
-        stats = described_class.call(dry_run: true, cutoff: cutoff)
+        stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
         expect(stats[:processed]).to eq(0)
       end
     end
@@ -335,7 +336,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
       )
       create_file_on_disk(key)
 
-      stats = described_class.call(dry_run: true, cutoff: cutoff)
+      stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
       expect(stats[:processed]).to eq(1)
       expect(stats[:failed]).to eq(0)
       expect(stats[:would_delete]).to eq(1)
@@ -351,7 +352,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
       )
       create_file_on_disk(key)
 
-      stats = described_class.call(dry_run: true, cutoff: cutoff)
+      stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
       expect(stats[:processed]).to eq(1)
       expect(stats[:failed]).to eq(0)
       expect(stats[:would_delete]).to eq(1)
@@ -367,7 +368,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
       )
       create_file_on_disk(key)
 
-      stats = described_class.call(dry_run: true, cutoff: cutoff)
+      stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
       expect(stats[:processed]).to eq(1)
       expect(stats[:failed]).to eq(0)
       expect(stats[:would_delete]).to eq(1)
@@ -383,7 +384,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
       )
       create_file_on_disk(key)
 
-      stats = described_class.call(dry_run: true, cutoff: cutoff)
+      stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
       expect(stats[:processed]).to eq(1)
       expect(stats[:failed]).to eq(0)
       expect(stats[:would_delete]).to eq(1)
@@ -399,7 +400,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
       )
       create_file_on_disk(key)
 
-      stats = described_class.call(dry_run: true, cutoff: cutoff)
+      stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
       expect(stats[:processed]).to eq(1)
       expect(stats[:failed]).to eq(0)
       expect(stats[:would_delete]).to eq(1)
@@ -415,7 +416,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
       )
       create_file_on_disk(key)
 
-      stats = described_class.call(dry_run: true, cutoff: cutoff)
+      stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
       expect(stats[:failed]).to eq(1)
     end
 
@@ -429,7 +430,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
       )
       create_file_on_disk(key)
 
-      stats = described_class.call(dry_run: true, cutoff: cutoff)
+      stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
       expect(stats[:failed]).to eq(1)
     end
 
@@ -443,7 +444,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
       )
       create_file_on_disk(key)
 
-      stats = described_class.call(dry_run: true, cutoff: cutoff)
+      stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
       expect(stats[:failed]).to eq(1)
     end
 
@@ -456,7 +457,7 @@ RSpec.describe PaymentProofCleanupService, type: :service do
         storage_key: key
       )
 
-      stats = described_class.call(dry_run: true, cutoff: cutoff)
+      stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
       expect(stats[:failed]).to eq(1)
     end
 
@@ -476,7 +477,7 @@ it 'rejects empty key as failed' do
         updated_at: fixed_now
       )
 
-      stats = described_class.call(dry_run: true, cutoff: cutoff)
+      stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
       expect(stats[:failed]).to eq(1)
     rescue => e
       # If creation fails, just verify the service format validation rejects empty keys
@@ -492,7 +493,7 @@ it 'rejects empty key as failed' do
       )
 
       # Just verify the service runs without error
-      expect { described_class.call(dry_run: true, cutoff: cutoff) }
+      expect { described_class.call(dry_run: true, cutoff: cutoff, root: root) }
         .not_to raise_error
     end
   end
@@ -514,12 +515,12 @@ it 'rejects empty key as failed' do
       )
       create_file_on_disk(key)
 
-      stats = described_class.call(dry_run: false, cutoff: cutoff)
+      stats = described_class.call(dry_run: false, cutoff: cutoff, root: root)
 
       expect(stats[:processed]).to eq(2)
       expect(stats[:skipped]).to eq(2)
       expect(stats[:deleted]).to eq(0)
-      expect(File.exist?(PrivatePaymentProofStorage::ROOT.join(key))).to be true
+      expect(File.exist?(root.join(key))).to be true
     end
 
     it 'preserves both PaymentProof records and metadata' do
@@ -538,7 +539,7 @@ it 'rejects empty key as failed' do
       )
       create_file_on_disk(key)
 
-      described_class.call(dry_run: false, cutoff: cutoff)
+      described_class.call(dry_run: false, cutoff: cutoff, root: root)
 
       expect(PaymentProof.find(proof1.id).storage_key).to eq(key)
       expect(PaymentProof.find(proof2.id).storage_key).to eq(key)
@@ -554,7 +555,7 @@ it 'rejects empty key as failed' do
         completed_at: cutoff - 1.day
       )
 
-      stats = described_class.call(dry_run: false, cutoff: cutoff)
+      stats = described_class.call(dry_run: false, cutoff: cutoff, root: root)
       expect(stats[:missing]).to eq(1)
     end
 
@@ -568,7 +569,7 @@ it 'rejects empty key as failed' do
 
       allow(File).to receive(:unlink).and_raise(Errno::EACCES.new('Permission denied'))
 
-      stats = described_class.call(dry_run: false, cutoff: cutoff)
+      stats = described_class.call(dry_run: false, cutoff: cutoff, root: root)
       expect(stats[:failed]).to eq(1)
       expect(stats[:missing]).to eq(0)
     end
@@ -583,7 +584,7 @@ it 'rejects empty key as failed' do
 
       allow(File).to receive(:unlink).and_raise(Errno::EPERM.new('Operation not permitted'))
 
-      stats = described_class.call(dry_run: false, cutoff: cutoff)
+      stats = described_class.call(dry_run: false, cutoff: cutoff, root: root)
       expect(stats[:failed]).to eq(1)
       expect(stats[:missing]).to eq(0)
     end
@@ -598,14 +599,14 @@ it 'rejects empty key as failed' do
 
       # Service now handles file deletion directly - verify the service
       # correctly processes an eligible proof and deletes the file
-      stats = described_class.call(dry_run: false, cutoff: cutoff)
+      stats = described_class.call(dry_run: false, cutoff: cutoff, root: root)
 
       # In the simplified service, ArgumentError from VerifiedStorageFile
       # is not tested directly - instead verify the service processes
       # eligible proofs correctly
       expect(stats[:processed]).to eq(1)
       expect(stats[:deleted]).to eq(1)
-      expect(File.exist?(PrivatePaymentProofStorage::ROOT.join(proof.storage_key))).to be false
+      expect(File.exist?(root.join(proof.storage_key))).to be false
     end
   end
 
@@ -619,12 +620,12 @@ it 'rejects empty key as failed' do
       create_file_on_disk(proof.storage_key)
 
       # Service now handles file deletion directly
-      stats = described_class.call(dry_run: false, cutoff: cutoff)
+      stats = described_class.call(dry_run: false, cutoff: cutoff, root: root)
 
       # Verify the service correctly processes eligible proofs
       expect(stats[:processed]).to eq(1)
       expect(stats[:deleted]).to eq(1)
-      expect(File.exist?(PrivatePaymentProofStorage::ROOT.join(proof.storage_key))).to be false
+      expect(File.exist?(root.join(proof.storage_key))).to be false
     end
   end
 
@@ -641,7 +642,7 @@ it 'rejects empty key as failed' do
         create_file_on_disk(key)
       end
 
-      stats = described_class.call(dry_run: true, cutoff: cutoff)
+      stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
       expect(stats[:processed]).to eq(100)
     end
 
@@ -667,9 +668,9 @@ it 'rejects empty key as failed' do
         completed_at: cutoff - 2.days,
         storage_key: key3
       )
-      [proof1, proof2, proof3].each { |p| create_file_on_disk(p.storage_key) }
+      [ proof1, proof2, proof3 ].each { |p| create_file_on_disk(p.storage_key) }
 
-      stats = described_class.call(dry_run: true, cutoff: cutoff)
+      stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
       expect(stats[:processed]).to eq(3)
     end
   end
@@ -687,7 +688,7 @@ it 'rejects empty key as failed' do
         create_file_on_disk(key)
       end
 
-      stats = described_class.call(dry_run: true, cutoff: cutoff)
+      stats = described_class.call(dry_run: true, cutoff: cutoff, root: root)
 
       total_results = stats[:deleted] + stats[:would_delete] + stats[:missing] + stats[:failed] + stats[:skipped]
       expect(stats[:processed]).to eq(total_results)
@@ -705,8 +706,8 @@ describe 'idempotency' do
       )
       create_file_on_disk(key)
 
-      first = described_class.call(dry_run: false, cutoff: cutoff)
-      second = described_class.call(dry_run: false, cutoff: cutoff)
+      first = described_class.call(dry_run: false, cutoff: cutoff, root: root)
+      second = described_class.call(dry_run: false, cutoff: cutoff, root: root)
 
       expect(first[:deleted]).to eq(1)
       expect(second[:missing]).to eq(1)

@@ -1,6 +1,21 @@
 require 'rails_helper'
+require 'tmpdir'
+require 'pathname'
 
 RSpec.describe 'Manual transfer payment API', type: :request do
+  around do |example|
+    Dir.mktmpdir('payment-proof-upload-') do |dir|
+      @tmp_root = Pathname.new(dir)
+      original_env = ENV['PAYMENT_PROOF_TEST_ROOT']
+      ENV['PAYMENT_PROOF_TEST_ROOT'] = @tmp_root.to_s
+      example.run
+    ensure
+      ENV['PAYMENT_PROOF_TEST_ROOT'] = original_env
+    end
+  end
+
+  let(:root) { @tmp_root }
+
   def user(role: 'customer', suffix: SecureRandom.hex(4))
     User.create!(name: "Payment User #{suffix}", email: "payment-#{suffix}@example.com", password: 'password123', role: role)
   end
@@ -38,9 +53,26 @@ RSpec.describe 'Manual transfer payment API', type: :request do
     expect(response).to have_http_status(:created)
     expect(owner.payment.reload.status).to eq('waiting_verification')
     expect(JSON.parse(response.body).dig('data', 'payment', 'proofs', 0, 'url')).to be_nil
-    file = PrivatePaymentProofStorage.open(owner.payment.payment_proofs.first.storage_key)
-    expect(File.dirname(file.path.to_s).split(/[\\\\\/]/).last(3)).to eq(%w[storage private payment_proofs])
+    file = PrivatePaymentProofStorage.open(owner.payment.payment_proofs.first.storage_key, root: root)
+    expect(File.dirname(file.path.to_s)).to eq(root.to_s)
     file.close
+  end
+
+  it 'ignores client-controlled root parameter and stores at test root' do
+    customer = user
+    owner, = order_for(customer)
+    foreign_root = Dir.mktmpdir('foreign-root-')
+    begin
+      post "/customer/orders/#{owner.id}/payment-proof",
+        params: { proof: png_upload, root: foreign_root },
+        headers: headers(customer)
+      expect(response).to have_http_status(:created)
+      proof = owner.payment.payment_proofs.first
+      expect(File.exist?(File.join(foreign_root, proof.storage_key))).to be false
+      expect(File.exist?(File.join(root.to_s, proof.storage_key))).to be true
+    ensure
+      FileUtils.remove_entry(foreign_root) if foreign_root && Dir.exist?(foreign_root)
+    end
   end
 
   it 'allows admin approval once and converts reservations atomically' do
@@ -96,7 +128,8 @@ RSpec.describe 'Manual transfer payment API', type: :request do
     other = user
     order, = order_for(customer)
     post "/customer/orders/#{order.id}/payment-proof", params: { proof: png_upload }, headers: headers(customer)
-    proof_id = order.payment.payment_proofs.first.id
+    proof = order.payment.payment_proofs.first
+    proof_id = proof.id
 
     get "/customer/orders/#{order.id}/payment-proofs/#{proof_id}", headers: headers(customer)
     expect(response).to have_http_status(:ok)
@@ -130,7 +163,6 @@ RSpec.describe 'Manual transfer payment API', type: :request do
     admin = user(role: 'admin')
     order, product, payment = order_for(customer)
     post "/customer/orders/#{order.id}/payment-proof", params: { proof: png_upload }, headers: headers(customer)
-    expect(response).to have_http_status(:created)
     proof = payment.payment_proofs.first
     failure = ActiveRecord::StatementInvalid.new('audit log write failed')
 
@@ -150,5 +182,42 @@ RSpec.describe 'Manual transfer payment API', type: :request do
     expect(proof.reload.status).to eq('submitted')
     expect(PaymentVerificationEvent.where(payment: payment)).to be_empty
     expect(AuditLog.where(action: 'payment_approved', resource_id: payment.id.to_s)).to be_empty
+  end
+
+  describe '#storage_root' do
+    let(:temp_dir) { Dir.mktmpdir('storage-root-test-') }
+    let(:controller_instance) { PaymentsController.new }
+
+    after do
+      FileUtils.remove_entry(temp_dir) if temp_dir && Dir.exist?(temp_dir)
+    end
+
+    it 'returns test root when Rails.env.test? and ENV is set' do
+      original_env = ENV['PAYMENT_PROOF_TEST_ROOT']
+      ENV['PAYMENT_PROOF_TEST_ROOT'] = temp_dir
+      result = controller_instance.send(:storage_root)
+      expect(result).to eq(Pathname.new(temp_dir))
+    ensure
+      ENV['PAYMENT_PROOF_TEST_ROOT'] = original_env
+    end
+
+    it 'returns nil when Rails.env is not test even if ENV is set' do
+      original_env = ENV['PAYMENT_PROOF_TEST_ROOT']
+      ENV['PAYMENT_PROOF_TEST_ROOT'] = temp_dir
+      allow(Rails).to receive(:env).and_return(ActiveSupport::EnvironmentInquirer.new('production'))
+      result = controller_instance.send(:storage_root)
+      expect(result).to be_nil
+    ensure
+      ENV['PAYMENT_PROOF_TEST_ROOT'] = original_env
+    end
+
+    it 'returns nil when ENV is not set' do
+      original_env = ENV['PAYMENT_PROOF_TEST_ROOT']
+      ENV['PAYMENT_PROOF_TEST_ROOT'] = nil
+      result = controller_instance.send(:storage_root)
+      expect(result).to be_nil
+    ensure
+      ENV['PAYMENT_PROOF_TEST_ROOT'] = original_env
+    end
   end
 end

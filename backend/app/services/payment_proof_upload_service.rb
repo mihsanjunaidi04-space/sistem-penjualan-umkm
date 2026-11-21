@@ -12,7 +12,7 @@ class PaymentProofUploadService
     end
   end
 
-  def self.call(payment:, upload:)
+  def self.call(payment:, upload:, root: PrivatePaymentProofStorage::ROOT)
     raise Error.new("FILE_REQUIRED", "Bukti transfer wajib diunggah.") if upload.blank?
     raise Error.new("FILE_TOO_LARGE", "Ukuran bukti transfer maksimal 5 MB.") if upload.size > MAX_SIZE
 
@@ -20,7 +20,7 @@ class PaymentProofUploadService
     detected = Marcel::MimeType.for(upload.tempfile, name: upload.original_filename.to_s)
     raise Error.new("INVALID_FILE_TYPE", "Bukti transfer harus berupa JPG, PNG, atau WEBP yang valid.") unless ALLOWED[extension] == detected
 
-    key, = PrivatePaymentProofStorage.store(upload)
+    key, = PrivatePaymentProofStorage.store(upload, root: root)
     PaymentProof.create!(payment: payment, storage_key: key, original_filename: upload.original_filename.to_s.truncate(255), mime_type: detected, file_size: upload.size, status: "submitted", uploaded_at: Time.current)
   rescue IOError
     raise Error.new("INVALID_FILE_TYPE", "Isi file bukti transfer tidak valid.")

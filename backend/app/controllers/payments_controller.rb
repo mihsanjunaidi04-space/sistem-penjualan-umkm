@@ -9,7 +9,9 @@ class PaymentsController < ApplicationController
     return render_error(:unprocessable_content, "PAYMENT_DEADLINE_PASSED", "Tenggat pembayaran telah lewat.") if order.payment_deadline_at <= Time.current
 
     proof = ActiveRecord::Base.transaction do
-      proof = PaymentProofUploadService.call(payment: payment, upload: params[:proof])
+      options = { payment: payment, upload: params[:proof] }
+      options[:root] = storage_root if storage_root
+      proof = PaymentProofUploadService.call(**options)
       payment.update!(status: "waiting_verification", rejection_reason: nil)
       proof
     end
@@ -23,13 +25,21 @@ class PaymentsController < ApplicationController
   def proof
     order = current_user.orders.find(params[:order_id])
     proof = order.payment.payment_proofs.find(params[:proof_id])
-    file = PrivatePaymentProofStorage.open(proof.storage_key)
+    options = {}
+    options[:root] = storage_root if storage_root
+    file = PrivatePaymentProofStorage.open(proof.storage_key, **options)
     send_verified_file(file, type: proof.mime_type, disposition: "inline", filename: "payment-proof-#{proof.id}#{payment_proof_extension(proof.mime_type)}")
   rescue ActiveRecord::RecordNotFound, ArgumentError
     render_error(:not_found, "PAYMENT_PROOF_NOT_FOUND", "Bukti pembayaran tidak ditemukan.")
   end
 
   private
+
+  def storage_root
+    return nil unless Rails.env.test? && ENV["PAYMENT_PROOF_TEST_ROOT"].present?
+
+    Pathname.new(ENV["PAYMENT_PROOF_TEST_ROOT"])
+  end
 
   def serialize_payment(payment)
     { id: payment.id, amount: payment.amount, method: payment.payment_method, status: payment.status, rejection_reason: payment.rejection_reason, verified_at: payment.verified_at&.iso8601, proofs: payment.payment_proofs.order(created_at: :desc).map { |proof| { id: proof.id, status: proof.status, original_filename: proof.original_filename, uploaded_at: proof.uploaded_at.iso8601 } } }

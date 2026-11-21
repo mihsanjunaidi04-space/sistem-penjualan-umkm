@@ -1,8 +1,18 @@
 require 'rails_helper'
+require 'tmpdir'
+require 'pathname'
 
 RSpec.describe PaymentProofCleanupJob, type: :job do
   include ActiveSupport::Testing::TimeHelpers
 
+  around do |example|
+    Dir.mktmpdir('payment-proof-cleanup-job-') do |dir|
+      @tmp_root = Pathname.new(dir)
+      example.run
+    end
+  end
+
+  let(:root) { @tmp_root }
   let(:fixed_now) { Time.utc(2026, 11, 20, 10, 0, 0) }
   let(:cutoff) { fixed_now - 1.year }
 
@@ -63,18 +73,10 @@ RSpec.describe PaymentProofCleanupJob, type: :job do
   end
 
   def create_file_on_disk(storage_key)
-    path = PrivatePaymentProofStorage::ROOT.join(storage_key)
+    path = root.join(storage_key)
     path.dirname.mkpath
     File.binwrite(path, 'fake image content')
     path
-  end
-
-  before do
-    PrivatePaymentProofStorage::ROOT.rmtree if PrivatePaymentProofStorage::ROOT.exist?
-  end
-
-  after do
-    PrivatePaymentProofStorage::ROOT.rmtree if PrivatePaymentProofStorage::ROOT.exist?
   end
 
   describe '#perform' do
@@ -88,9 +90,9 @@ RSpec.describe PaymentProofCleanupJob, type: :job do
         )
         create_file_on_disk(proof.storage_key)
 
-        expect(PaymentProofCleanupService).to receive(:call).with(dry_run: true, cutoff: cutoff).and_call_original
+        expect(PaymentProofCleanupService).to receive(:call).with(dry_run: true, cutoff: cutoff, root: root).and_call_original
 
-        described_class.perform_now
+        described_class.perform_now(root: root)
       end
 
       it 'returns stats from service' do
@@ -102,7 +104,7 @@ RSpec.describe PaymentProofCleanupJob, type: :job do
         )
         create_file_on_disk(proof.storage_key)
 
-        result = described_class.perform_now
+        result = described_class.perform_now(root: root)
 
         expect(result[:processed]).to eq(1)
         expect(result[:would_delete]).to eq(1)
@@ -120,9 +122,9 @@ RSpec.describe PaymentProofCleanupJob, type: :job do
         )
         create_file_on_disk(proof.storage_key)
 
-        expect(PaymentProofCleanupService).to receive(:call).with(dry_run: false, cutoff: cutoff).and_call_original
+        expect(PaymentProofCleanupService).to receive(:call).with(dry_run: false, cutoff: cutoff, root: root).and_call_original
 
-        described_class.perform_now(dry_run: false)
+        described_class.perform_now(dry_run: false, root: root)
       end
 
       it 'returns stats with deleted count' do
@@ -134,7 +136,7 @@ RSpec.describe PaymentProofCleanupJob, type: :job do
         )
         create_file_on_disk(proof.storage_key)
 
-        result = described_class.perform_now(dry_run: false)
+        result = described_class.perform_now(dry_run: false, root: root)
 
         expect(result[:processed]).to eq(1)
         expect(result[:deleted]).to eq(1)
@@ -146,9 +148,9 @@ RSpec.describe PaymentProofCleanupJob, type: :job do
       it 'passes custom cutoff to service' do
         custom_cutoff = fixed_now - 2.years
 
-        expect(PaymentProofCleanupService).to receive(:call).with(dry_run: true, cutoff: custom_cutoff).and_call_original
+        expect(PaymentProofCleanupService).to receive(:call).with(dry_run: true, cutoff: custom_cutoff, root: root).and_call_original
 
-        described_class.perform_now(cutoff: custom_cutoff)
+        described_class.perform_now(cutoff: custom_cutoff, root: root)
       end
     end
 
@@ -162,10 +164,10 @@ RSpec.describe PaymentProofCleanupJob, type: :job do
         )
         create_file_on_disk(proof.storage_key)
 
-        described_class.perform_now(dry_run: false)
+        described_class.perform_now(dry_run: false, root: root)
 
         # Verify file is deleted
-        expect(File.exist?(PrivatePaymentProofStorage::ROOT.join(proof.storage_key))).to be false
+        expect(File.exist?(root.join(proof.storage_key))).to be false
 
         # The controller would raise ArgumentError -> 404
         expect {
@@ -184,7 +186,7 @@ RSpec.describe PaymentProofCleanupJob, type: :job do
         )
         create_file_on_disk(proof.storage_key)
 
-        described_class.perform_now(dry_run: false)
+        described_class.perform_now(dry_run: false, root: root)
 
         expect(PaymentProof.exists?(proof.id)).to be true
         expect(PaymentProof.find(proof.id).storage_key).to eq(proof.storage_key)
@@ -213,7 +215,7 @@ RSpec.describe PaymentProofCleanupJob, type: :job do
           created_at: Time.current
         )
 
-        described_class.perform_now(dry_run: false)
+        described_class.perform_now(dry_run: false, root: root)
 
         expect(PaymentVerificationEvent.count).to eq(1)
       end
@@ -227,7 +229,7 @@ RSpec.describe PaymentProofCleanupJob, type: :job do
         )
         create_file_on_disk(proof.storage_key)
 
-        described_class.perform_now(dry_run: false)
+        described_class.perform_now(dry_run: false, root: root)
 
         expect(proof.payment.reload.status).to eq('paid')
       end
@@ -241,7 +243,7 @@ RSpec.describe PaymentProofCleanupJob, type: :job do
         )
         create_file_on_disk(proof.storage_key)
 
-        described_class.perform_now(dry_run: false)
+        described_class.perform_now(dry_run: false, root: root)
 
         expect(proof.payment.order.reload.status).to eq('completed')
       end
