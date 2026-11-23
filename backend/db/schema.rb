@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026110700001) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_23_085610) do
   create_table "addresses", force: :cascade do |t|
     t.bigint "user_id", null: false
     t.string "recipient_name", limit: 150, null: false
@@ -25,6 +25,7 @@ ActiveRecord::Schema[8.1].define(version: 2026110700001) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["user_id"], name: "index_addresses_on_user_id"
+    t.index ["user_id"], name: "index_addresses_on_user_id_unique_default", unique: true, where: "is_default = true"
   end
 
   create_table "audit_logs", force: :cascade do |t|

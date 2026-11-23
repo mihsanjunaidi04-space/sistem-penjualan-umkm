@@ -106,6 +106,21 @@ class AuthController < ApplicationController
     }, status: :ok
   end
 
+  def update_profile
+    authenticate_user!
+    return if performed?
+
+    if current_user.update(profile_params)
+      render json: {
+        success: true,
+        data: { user: serialize_user(current_user) },
+        message: "Profil berhasil diperbarui."
+      }, status: :ok
+    else
+      render_error(:unprocessable_entity, "VALIDATION_ERROR", current_user.errors.full_messages.join(", "))
+    end
+  end
+
   private
 
   def render_rate_limited(retry_after)
@@ -115,6 +130,10 @@ class AuthController < ApplicationController
 
   def user_params
     params.permit(:name, :email, :password, :password_confirmation)
+  end
+
+  def profile_params
+    params.permit(:name)
   end
 
   def build_token(user)

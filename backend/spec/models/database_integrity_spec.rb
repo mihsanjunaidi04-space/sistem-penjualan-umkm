@@ -22,6 +22,41 @@ RSpec.describe 'database integrity', type: :model do
     expect { CartItem.create!(cart: cart, product: product, quantity: 0) }.to raise_error(ActiveRecord::RecordInvalid)
   end
 
+  it 'enforces one default address per user with the database partial unique index' do
+    user_a = User.create!(name: 'Address Owner A', email: 'address-owner-a@example.com', password: 'password123', role: 'customer')
+    user_b = User.create!(name: 'Address Owner B', email: 'address-owner-b@example.com', password: 'password123', role: 'customer')
+    address_attributes = {
+      recipient_name: 'Recipient',
+      phone: '081234567890',
+      address_line: 'Jl. Contoh No. 1',
+      province: 'DKI Jakarta',
+      city: 'Jakarta Pusat',
+      district: 'Menteng',
+      postal_code: '10310'
+    }
+
+    index = ActiveRecord::Base.connection.indexes(:addresses).find do |candidate|
+      candidate.name == 'index_addresses_on_user_id_unique_default'
+    end
+    expect(index).to be_present
+    expect(index.unique).to be(true)
+    expect(index.columns).to eq([ 'user_id' ])
+    expect(index.where).to eq('is_default = true')
+
+    Address.create!(address_attributes.merge(user: user_a, is_default: true))
+    duplicate_default = Address.new(address_attributes.merge(user: user_a, is_default: true))
+
+    expect { duplicate_default.save!(validate: false) }.to raise_error(ActiveRecord::RecordNotUnique)
+
+    expect do
+      Address.create!(address_attributes.merge(user: user_b, is_default: true))
+    end.to change { Address.where(user: user_b, is_default: true).count }.by(1)
+
+    expect do
+      2.times { Address.create!(address_attributes.merge(user: user_a, is_default: false)) }
+    end.to change { Address.where(user: user_a, is_default: false).count }.by(2)
+  end
+
   it 'enforces foreign key protection for order items at the database layer' do
     user = User.create!(name: 'Charlie', email: 'charlie-unique@example.com', password: 'password123', role: 'customer')
     shipping_method = ShippingMethod.create!(name: 'Reguler Unique', description: 'Standard', estimated_days: 3, cost: 15_000)

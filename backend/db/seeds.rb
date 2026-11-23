@@ -1,11 +1,22 @@
 # frozen_string_literal: true
 
-admin = User.find_or_initialize_by(email: 'admin@example.com')
-admin.name = 'Admin UMKM'
-admin.role = 'admin'
-admin.is_active = true
-admin.password = 'Password123!'
-admin.save!
+# Initial admin account is created only when explicit server-side
+# credentials are provided via ADMIN_EMAIL and ADMIN_INITIAL_PASSWORD.
+# No default password is ever baked into this file, and an existing admin
+# account is never touched (no password reset, role change, or status flip).
+admin_email = ENV['ADMIN_EMAIL']
+admin_password = ENV['ADMIN_INITIAL_PASSWORD']
+
+if admin_email.present? && admin_password.present?
+  admin = User.find_or_initialize_by(email: admin_email)
+  if admin.new_record?
+    admin.name = 'Admin UMKM'
+    admin.role = 'admin'
+    admin.is_active = true
+    admin.password = admin_password
+    admin.save!
+  end
+end
 
 [ {
   name: 'Elektronik',

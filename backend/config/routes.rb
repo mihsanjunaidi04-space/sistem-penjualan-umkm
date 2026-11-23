@@ -6,6 +6,7 @@ Rails.application.routes.draw do
     post "/login", action: :login
     delete "/logout", action: :logout
     get "/me", action: :me
+    patch "/profile", action: :update_profile
     get "/admin", action: :admin_only
     get "/customer", action: :customer_only
   end
@@ -23,6 +24,9 @@ Rails.application.routes.draw do
   delete "/cart/items/:id", to: "cart#destroy_item"
   delete "/cart/items", to: "cart#clear"
   get "/customer/addresses", to: "addresses#index"
+  post "/customer/addresses", to: "addresses#create"
+  patch "/customer/addresses/:id", to: "addresses#update"
+  delete "/customer/addresses/:id", to: "addresses#destroy"
   post "/checkout", to: "checkout#create"
   get "/customer/orders", to: "orders#index"
   get "/customer/orders/:id", to: "orders#show"
