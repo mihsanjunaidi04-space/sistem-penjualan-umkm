@@ -17,13 +17,14 @@ module Admin
 
     def update
       product = Product.find(params[:id])
-      attributes = product_params
+      attributes = product_params.to_h.symbolize_keys
       attributes[:slug] = slug_for(attributes[:name]) if attributes[:slug].blank? && attributes[:name].present?
-      if product.update(attributes)
-        render json: { success: true, data: { product: ::ProductsController.serialize_product(product, request) }, message: "Produk berhasil diubah." }
-      else
-        render_error(:unprocessable_content, "VALIDATION_ERROR", "Data produk tidak valid.", product.errors.to_hash)
-      end
+      product = AdminProductUpdateService.call(product:, attributes:, admin: current_user)
+      render json: { success: true, data: { product: ::ProductsController.serialize_product(product, request) }, message: "Produk berhasil diubah." }
+    rescue AdminProductUpdateService::StockConflict
+      render_error(:conflict, "STOCK_UPDATE_CONFLICT", "Stok berubah bersamaan atau tidak dapat dikurangi di bawah jumlah yang direservasi.")
+    rescue ActiveRecord::RecordInvalid => error
+      render_error(:unprocessable_content, "VALIDATION_ERROR", "Data produk tidak valid.", error.record.errors.to_hash)
     rescue ActiveRecord::RecordNotFound
       render_error(:not_found, "PRODUCT_NOT_FOUND", "Produk tidak ditemukan.")
     end
@@ -57,15 +58,34 @@ module Admin
     private
 
     def product_params
-      params.permit(:category_id, :name, :slug, :sku, :description, :price, :stock_on_hand, :reserved_stock, :is_active)
+      params.permit(:category_id, :name, :slug, :sku, :description, :price, :stock_on_hand, :is_active)
     end
 
     def save_product(product)
-      if product.save
+      saved = ActiveRecord::Base.transaction do
+        next false unless product.save
+
+        record_initial_stock_movement(product) if product.stock_on_hand.positive?
+        true
+      end
+
+      if saved
         render json: { success: true, data: { product: ::ProductsController.serialize_product(product, request) }, message: "Produk berhasil dibuat." }, status: :created
       else
         render_error(:unprocessable_content, "VALIDATION_ERROR", "Data produk tidak valid.", product.errors.to_hash)
       end
+    end
+
+    def record_initial_stock_movement(product)
+      InventoryMovement.create!(
+        product:,
+        movement_type: "stock_in",
+        quantity: product.stock_on_hand,
+        stock_before: 0,
+        stock_after: product.stock_on_hand,
+        notes: "Stok awal produk",
+        created_by: current_user
+      )
     end
 
     def slug_for(value)

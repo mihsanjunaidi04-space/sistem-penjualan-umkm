@@ -142,8 +142,11 @@ Bukti transfer yang diunggah bukan bukti dana telah diterima. Hanya verifikasi a
 - Admin menyetujui atau menolak.
 - Order menjadi `cancelled` hanya setelah pembatalan disetujui atau kedaluwarsa sesuai aturan.
 - Reservasi stok dan voucher dilepas secara konsisten.
-- Jika dana sudah diterima, refund manual dicatat terpisah.
-- Refund hanya dianggap selesai setelah dana benar-benar dikembalikan dan dikonfirmasi admin.
+- Refund hanya dikelola admin dan hanya dapat dibuat untuk payment berstatus `paid`; customer tidak dapat membuat atau melihat detail refund melalui API MVP.
+- Refund dapat sebagian atau penuh. Jumlah refund berstatus `pending` dan `processed` untuk payment yang sama tidak boleh melebihi jumlah payment yang dananya telah diterima. Refund `rejected` tidak mengurangi batas; pengajuan berikutnya menggunakan record baru.
+- Transfer dana dilakukan manual di luar aplikasi. Refund berstatus `processed` hanya setelah admin mengonfirmasi dana benar-benar dikembalikan dan mencatat `reference_number`; kegagalan transfer membiarkan record `pending` sampai admin menyelesaikannya atau menolaknya dengan catatan.
+- Status payment tetap `paid` selama pengembalian belum penuh dan menjadi `refunded` hanya ketika total refund berstatus `processed` mencapai jumlah payment. Status refund yang sah adalah `pending`, `processed`, dan `rejected`; pemrosesan/penolakan hanya berlaku pada refund `pending`.
+- Pembuatan, pemrosesan, dan penolakan refund dicatat dalam AuditLog. Refund tidak mengubah status order atau stok secara otomatis.
 - Barang yang telah dikirim tidak otomatis menambah stok ketika refund dilakukan. Pengembalian stok memerlukan proses retur dan verifikasi barang tersendiri.
 
 ## 7. Aturan status
@@ -256,7 +259,8 @@ Status setiap entitas dipisahkan. Status tidak boleh diubah bebas melalui endpoi
 - Bukti transfer tidak otomatis dianggap pembayaran.
 - Pembayaran tidak dapat diverifikasi dua kali.
 - Reservasi tidak dilepas atau dikonversi dua kali.
-- Refund tidak melebihi dana yang diterima dikurangi refund yang sudah diproses.
+- Jumlah refund `pending` + `processed` tidak melebihi dana payment yang diterima; refund `rejected` tidak mengurangi batas.
+- Payment menjadi `refunded` hanya setelah refund `processed` mencapai seluruh jumlah payment.
 - Bukti pembayaran tidak dapat diakses publik.
 - Scheduled job aman dijalankan berulang.
 - Laporan membedakan pembayaran terverifikasi, refund, dan pendapatan bersih.

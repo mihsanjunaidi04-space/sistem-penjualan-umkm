@@ -26,14 +26,14 @@ class CheckoutService
   end
 
   def call
-    shipping_method = ShippingMethod.find_by(id: @shipping_method_id, is_active: true)
-    raise Error.new("SHIPPING_METHOD_INVALID", "Metode pengiriman tidak tersedia.") unless shipping_method
-
     address = @user.addresses.find_by(id: @address_id)
     raise Error.new("ADDRESS_NOT_FOUND", "Alamat pengiriman tidak ditemukan.") unless address
 
     order = nil
     ActiveRecord::Base.transaction do
+      shipping_method = ShippingMethod.find_by(id: @shipping_method_id, is_active: true)
+      raise Error.new("SHIPPING_METHOD_INVALID", "Metode pengiriman tidak tersedia.") unless shipping_method
+
       cart = Cart.find_by(user_id: @user.id)
       raise Error.new("CART_EMPTY", "Keranjang masih kosong.") unless cart && cart.cart_items.exists?
 

@@ -19,7 +19,7 @@ Frontend saat ini menyimpan JWT pada `localStorage` dengan key `umkm_token` dan 
 
 ## 2. Implemented API
 
-Inventaris ini mencakup **55 route/action aplikasi** yang dideklarasikan di `backend/config/routes.rb`; jumlah ini bukan seluruh route runtime yang dapat ditambahkan Rails atau engine/framework. Setiap baris menyebut action tujuan dan status endpoint; `POST /checkout` berstatus Partial terhadap PRD karena integrasi voucher belum tersedia.
+Inventaris ini mencakup **63 route/action aplikasi** yang dideklarasikan di `backend/config/routes.rb`; jumlah ini bukan seluruh route runtime yang dapat ditambahkan Rails atau engine/framework. Setiap baris menyebut action tujuan dan status endpoint; `POST /checkout` berstatus Partial terhadap PRD karena integrasi voucher belum tersedia.
 
 ### 2.1 Health
 
@@ -64,7 +64,7 @@ Jika user belum memiliki alamat, alamat pertama menjadi default kecuali request 
 | GET | `/products` | `ProductsController#index` | Publik | Implemented | Daftar produk/kategori aktif. Query yang didukung: `q`, `category`, `page`, `per_page`; ukuran halaman dibatasi 50. |
 | GET | `/products/:slug` | `ProductsController#show` | Publik | Implemented | Detail produk aktif. |
 | GET | `/products/:slug/images/:image_id` | `ProductsController#image` | Publik | Implemented | Mengirim konten gambar katalog (bukan JSON) setelah pemeriksaan file. |
-| GET | `/shipping-methods` | `ShippingMethodsController#index` | Customer | Implemented | Daftar metode pengiriman aktif. Ini route pembacaan metode yang tersedia; tidak ada route admin untuk membuat atau mengubah metode pengiriman. |
+| GET | `/shipping-methods` | `ShippingMethodsController#index` | Customer | Implemented | Daftar metode pengiriman aktif untuk checkout. |
 
 ### 2.5 Cart and checkout
 
@@ -103,10 +103,17 @@ Snapshot item dan alamat disimpan pada order agar histori tidak mengikuti peruba
 | GET | `/admin/payments/:id/proofs/:proof_id` | `Admin::PaymentsController#proof` | Admin | Implemented | Mengirim file bukti secara privat. URL dalam response admin adalah endpoint terotorisasi, bukan URL publik permanen. |
 | POST | `/admin/payments/:id/approve` | `Admin::PaymentsController#approve` | Admin | Implemented | Memverifikasi payment dan memproses perubahan order/reservation secara transaksional. |
 | POST | `/admin/payments/:id/reject` | `Admin::PaymentsController#reject` | Admin | Implemented | Menolak bukti; menerima `reason`. |
+| GET | `/admin/refunds` | `Admin::RefundsController#index` | Admin | Implemented | Daftar refund; filter `status` opsional (`pending`, `processed`, `rejected`). |
+| GET | `/admin/refunds/:id` | `Admin::RefundsController#show` | Admin | Implemented | Detail satu refund. |
+| POST | `/admin/payments/:payment_id/refunds` | `Admin::RefundsController#create` | Admin | Implemented | Wajib header `Idempotency-Key` (1–180 karakter) dan body `refund.amount` serta `refund.reason`; hanya payment `paid`, membuat record `pending`. Key sama dalam scope admin+payment dengan payload sama me-replay refund; payload berbeda menghasilkan HTTP 409 `REFUND_IDEMPOTENCY_CONFLICT`. |
+| POST | `/admin/refunds/:id/process` | `Admin::RefundsController#mark_processed` | Admin | Implemented | Body `refund.reference_number` wajib dan `refund.notes` opsional; hanya setelah admin mengonfirmasi transfer manual. |
+| POST | `/admin/refunds/:id/reject` | `Admin::RefundsController#reject` | Admin | Implemented | Body `refund.notes` wajib; hanya refund `pending` yang dapat ditolak. |
 
 Bukti pembayaran divalidasi berdasarkan ukuran, ekstensi, dan MIME type hasil deteksi. Ukuran maksimal 5 MB; format yang diterima JPG/JPEG, PNG, atau WEBP. Upload memakai `multipart/form-data`, field `proof`. Upload bukti bukan konfirmasi dana diterima; payment baru dianggap `paid` setelah admin menyetujui bukti.
 
 Payment states yang dikenal model: `pending`, `waiting_verification`, `paid`, `rejected`, `expired`, `refunded`. Proof states: `submitted`, `approved`, `rejected`. Route approval/rejection hanya menangani verifikasi payment/proof; tidak ada gateway pembayaran.
+
+Refund hanya dapat dikelola admin; tidak ada endpoint refund customer. Pembuatan membatasi jumlah refund `pending` + `processed` pada jumlah payment diterima; refund `rejected` tidak dihitung. Header `Idempotency-Key` wajib; key disimpan secara persisten dalam scope admin+payment. Pengulangan dengan payload sama mengembalikan refund awal tanpa membuat refund atau AuditLog baru, sedangkan penggunaan ulang dengan payload berbeda mengembalikan HTTP 409 `REFUND_IDEMPOTENCY_CONFLICT`. Key kosong atau lebih dari 180 karakter ditolak. Refund parsial menjaga payment tetap `paid`; payment menjadi `refunded` hanya jika total refund `processed` mencapai seluruh jumlah payment. Pemrosesan wajib mencatat referensi transfer setelah dana dikembalikan manual. Pembuatan, pemrosesan, dan penolakan dicatat dalam AuditLog. Refund tidak mengubah order atau stok.
 
 ### 2.8 Cancellation
 
@@ -128,6 +135,9 @@ Pengajuan mensyaratkan order `awaiting_payment`, deadline belum lewat, tidak ada
 | PATCH | `/admin/shipments/:id/pack` | `Admin::ShipmentsController#pack` | Admin | Implemented | Mengubah shipment dari `not_shipped` menjadi `packed`. |
 | PATCH | `/admin/shipments/:id/ship` | `Admin::ShipmentsController#ship` | Admin | Implemented | Menerima `tracking_number`; mengirim shipment dan mengubah order menjadi `shipped`. |
 | PATCH | `/admin/shipments/:id/deliver` | `Admin::ShipmentsController#deliver` | Admin | Implemented | Menandai shipment `delivered`. |
+| GET | `/admin/shipping-methods` | `Admin::ShippingMethodsController#index` | Admin | Implemented | Daftar seluruh metode, termasuk yang nonaktif. |
+| POST | `/admin/shipping-methods` | `Admin::ShippingMethodsController#create` | Admin | Implemented | Menerima field top-level `name`, `description`, `estimated_days`, `cost`, dan `is_active`; membuat metode baru. |
+| PATCH | `/admin/shipping-methods/:id` | `Admin::ShippingMethodsController#update` | Admin | Implemented | Memperbarui field yang diizinkan. Deaktivasi menggunakan `is_active: false`; nama tidak dapat diubah setelah metode dirujuk order atau shipment. Tidak ada endpoint hard-delete. |
 
 Shipment hanya dibuat untuk order `processing` dengan payment `paid`; maksimal satu shipment per order. Transisi shipment diperiksa oleh service. Pengiriman dikelola manual; tidak ada integrasi courier API. Informasi shipment tersedia pada response detail order customer dan admin.
 
@@ -166,13 +176,18 @@ Shipment hanya dibuat untuk order `processing` dengan payment `paid`; maksimal s
 ### Payments, cancellation, and refunds
 
 - Pembayaran adalah transfer bank manual. Bukti transfer perlu diperiksa admin; upload tidak berarti dana sudah diterima.
-- Refund dilakukan secara manual sesuai kebijakan. API/service workflow refund otomatis belum tersedia. Model/schema mengenal payment status `refunded` dan tabel refund, tetapi tidak ada endpoint/service yang otomatis mencatat refund atau mentransisikan payment ke status itu.
+- Refund dilakukan melalui transfer manual di luar aplikasi dan hanya dikelola admin. Customer tidak dapat membuat refund atau membaca detail refund melalui API MVP.
+- Refund dapat sebagian atau penuh dan hanya dapat dibuat untuk payment berstatus `paid`. Akumulasi refund `pending` + `processed` tidak boleh melebihi jumlah payment yang telah diterima; refund `rejected` tidak mengurangi batas dan pengajuan ulang memakai record baru.
+- Status refund adalah `pending`, `processed`, atau `rejected`. Refund hanya menjadi `processed` setelah admin mengonfirmasi dana telah dikembalikan dan mencatat `reference_number`. Kegagalan transfer membiarkan refund `pending` sampai diselesaikan atau ditolak dengan catatan.
+- Payment tetap `paid` selama refund belum penuh dan berubah menjadi `refunded` hanya ketika total refund `processed` mencapai jumlah payment. Refund tidak mengubah status order atau stok. Pembuatan, pemrosesan, dan penolakan dicatat dalam AuditLog.
+- Endpoint admin refund yang tersedia tercantum pada tabel Payments and payment proof di atas; tidak ada endpoint refund customer.
 - Cancellation eligibility memakai payment states `pending`, `rejected`, `waiting_verification` serta syarat order/deadline yang dijelaskan di atas.
 
 ### Shipping
 
 - Metode yang ditampilkan melalui API adalah metode aktif. Pengelolaan shipment dilakukan admin secara manual melalui transisi yang tersedia.
-- Tidak ada API courier tracking atau pengelolaan admin shipping methods saat ini.
+- Admin dapat membuat, melihat, dan memperbarui shipping method melalui endpoint admin di atas. Penghapusan fisik tidak tersedia; metode dinonaktifkan melalui `is_active: false`. Nama metode yang sudah digunakan order/shipment tidak dapat diubah agar histori shipment tidak berubah. Checkout tetap hanya menerima metode aktif, sedangkan `orders.shipping_cost` menyimpan biaya transaksi saat checkout.
+- Tidak ada API courier tracking atau integrasi courier.
 
 ## 4. Planned, Partial, and Deferred
 
@@ -184,10 +199,8 @@ Bagian ini bukan daftar endpoint yang tersedia. Tidak ada path, request schema, 
 | Voucher | Partial / Planned (M10) | Model/schema voucher dan redemption tersedia; route voucher dan integrasi validasi/reservasi voucher pada checkout belum tersedia. Batas per-user tidak diklaim telah ditegakkan oleh checkout. |
 | Wishlist | Planned (M10) | Model/schema tersedia, tetapi API route wishlist tidak tersedia. |
 | Notifications | Planned (M10) | Model tersedia, tetapi API route notifications tidak tersedia. |
-| Inventory administration | Partial; advanced inventory planned (M10) | API khusus administrasi atau adjustment inventory belum tersedia. `PATCH /admin/products/:id` tetap dapat memperbarui `stock_on_hand` dan `reserved_stock` melalui strong parameters controller. Reservation dan inventory movement digunakan internal oleh alur transaksi, bukan melalui API inventory khusus. |
+| Inventory administration | Partial; advanced inventory planned (M10) | API khusus administrasi atau adjustment inventory belum tersedia. Admin dapat mengubah `stock_on_hand` melalui `PATCH /admin/products/:id`; setiap perubahan dicatat sebagai inventory movement secara atomik. `reserved_stock` tidak dapat diubah melalui parameter produk dan dikelola oleh lifecycle reservation. Reservation dan inventory movement tetap digunakan internal oleh alur transaksi, bukan melalui API inventory khusus. |
 | Dashboard and reports | Planned (M9, bagian penyelesaian MVP) | Endpoint dashboard/reports belum tersedia. Dashboard summary dan laporan operasional dasar direncanakan dalam M9 sebagai bagian penyelesaian MVP. Advanced analytics dan peningkatan ekspor laporan tetap berada di M10. |
-| Refund workflow | Deferred | Refund berada di luar implementasi M8 dan dilakukan secara manual sesuai kebijakan. API/service workflow refund otomatis belum tersedia. Model/schema refund tersedia; status `refunded` tidak membuktikan transisi otomatis. |
-| Admin shipping-method management | Partial | API hanya menyediakan pembacaan metode aktif melalui `GET /shipping-methods`; route admin untuk mengelola metode tidak tersedia meskipun pengelolaan metode disebut sebagai kebutuhan admin di PRD. |
 
 `auth_sessions` ditunda sesuai keputusan proyek; pencabutan JWT memakai `jwt_revocations`. Ini tidak menambah endpoint session.
 

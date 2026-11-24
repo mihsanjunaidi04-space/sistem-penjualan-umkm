@@ -29,7 +29,7 @@
 
 ## 3. Daftar tabel
 
-Rancangan ini terdiri dari **30 tabel**:
+Rancangan ini terdiri dari **31 tabel**:
 
 1. `users`
 2. `addresses`
@@ -61,6 +61,7 @@ Rancangan ini terdiri dari **30 tabel**:
 28. `cancellation_requests`
 29. `refunds`
 30. `jwt_revocations`
+31. `refund_idempotency_keys`
 
 **Catatan:** `auth_sessions` tercantum dalam rancangan awal (versi 1.0) namun **tidak diimplementasikan** — tidak ada migration, tidak ada tabel di schema, dan `database_integrity_spec.rb` memverifikasi ketiadaan tabel ini. Revocation JWT menggunakan tabel `jwt_revocations` (lihat tabel 30). Keputusan `auth_sessions` masih ditunda.
 
@@ -232,7 +233,16 @@ Kolom `id`, `created_at`, dan `updated_at` yang lazim pada Rails tidak selalu di
 **refunds**
 - `payment_id` FK, `order_id` FK, `amount`, `reason`, `status`, `processed_by` FK users, `processed_at`, `reference_number`, `notes`.
 - Status: `pending`, `processed`, `rejected`.
-- Total refund processed tidak boleh melebihi dana diterima.
+- Hanya admin yang mengelola refund; record refund terkait payment berstatus `paid`. Customer tidak memiliki akses API refund pada MVP.
+- Refund dapat sebagian atau penuh dan beberapa record dapat terkait satu payment. Akumulasi `pending` + `processed` tidak boleh melebihi `payments.amount` yang telah diterima. `rejected` tidak mengurangi batas; pengajuan ulang menggunakan record baru.
+- `processed` hanya setelah admin mengonfirmasi transfer manual dan mencatat `reference_number`. Transfer berlangsung di luar aplikasi; kegagalan transfer membiarkan record `pending` hingga diselesaikan atau ditolak dengan catatan.
+- Pembuatan, pemrosesan, dan penolakan dicatat sebagai AuditLog. Kolom `processed_by` dan `processed_at` mencatat pemrosesan; aktor setiap perubahan dicatat di audit trail.
+- Payment tetap `paid` selama pengembalian belum penuh; menjadi `refunded` hanya saat jumlah refund `processed` mencapai `payments.amount`. Refund tidak mengubah status order atau stok.
+
+**refund_idempotency_keys**
+- `admin_id` FK users, `payment_id` FK, `refund_id` unique FK, `key`, `request_hash` SHA-256.
+- Unique `(admin_id, payment_id, key)` membatasi key per admin dan payment; panjang key maksimum 180 karakter.
+- Record key, refund, dan AuditLog pembuatan disimpan dalam satu transaksi agar kegagalan tidak meninggalkan refund parsial.
 
 ## 5. Relasi utama
 
@@ -312,8 +322,9 @@ Dalam transaksi atomik:
 - Cancellation request diputuskan admin.
 - Jika disetujui, order `cancelled`.
 - Reservation yang belum dikonversi dilepas.
-- Jika dana telah diterima, buat/lanjutkan refund manual.
-- Refund `processed` hanya setelah pengembalian dana dikonfirmasi.
+- Refund manual hanya dibuat admin untuk payment `paid`; batas transaksional menghitung refund `pending` + `processed` terhadap jumlah payment yang diterima. Refund `rejected` tidak dihitung.
+- Refund `processed` hanya setelah admin mengonfirmasi transfer manual dan mencatat referensi transfer. Pembuatan, pemrosesan, dan penolakan refund serta perubahan status payment terkait dicatat atomik bersama AuditLog.
+- Payment tetap `paid` pada refund parsial dan berubah menjadi `refunded` hanya setelah seluruh jumlah payment dikembalikan melalui refund `processed`. Refund tidak mengubah status order atau stok.
 - Jangan otomatis mengembalikan stok barang yang telah dikirim.
 ### Completion
 
@@ -346,7 +357,7 @@ Check:
 - Quantity > 0.
 - Rating 1–5.
 - `reserved_stock <= stock_on_hand`.
-- Nominal refund positif dan akumulasi refund processed tidak melebihi pembayaran diterima (aturan agregat juga divalidasi dalam transaksi).
+- Nominal refund positif; untuk payment `paid`, akumulasi refund `pending` + `processed` tidak melebihi pembayaran diterima. Batas agregat divalidasi dalam transaksi karena tidak dapat dijamin oleh check constraint satu baris.
 
 Index:
 - Foreign keys.

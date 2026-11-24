@@ -92,26 +92,25 @@ Reservasi kedaluwarsa diproses oleh `InventoryReservationExpiryJob`. Pada lingku
 - Payment deadline handling.
 
 **Gate:** private file access, payment state machine, double approval prevention, stock conversion.
-### M8 — Orders, cancellation, shipping
+### M8 — Orders, cancellation, shipping, and manual refunds
 
 - Customer order history/detail.
 - Cancellation request.
 - Admin approval/rejection.
 - Shipment creation and status.
 - Auto-completion job.
+- Admin manual refund workflow: partial/full refund records, pending/processed/rejected transitions, transfer reference, and AuditLog.
+- Payment-level refund cap checked transactionally: `pending` + `processed` must not exceed the received payment amount; rejected records do not count.
+- Payment remains `paid` after partial refund and becomes `refunded` only when processed refund total equals the payment amount. Refund does not change order status or stock.
 
-Refund remains outside M8; decisions D2 and D5 are deferred.
-- **D2 (IP/User-Agent retention):** 90 hari. Cleanup mechanism ditunda hingga kebutuhan operasional jelas.
-- **D5 (AuditLog protection):** Model-level protection diterima untuk MVP. Database-level trigger ditunda ke M12 hardening.
-
-**Gate:** transition tests, refund limit, stock consistency, job idempotency.
+**Gate:** order/payment/refund transition tests, concurrent refund-limit tests, audit rollback tests, stock consistency, job idempotency.
 
 ### M9 — Dashboard and basic reports (MVP completion)
 
-M9 is part of completing the MVP and follows the core order, payment, cancellation, and shipping flows in M8. It covers only the dashboard summary and basic operational reports required by the PRD:
+M9 is part of completing the MVP and follows the core order, payment, cancellation, shipping, and manual refund flows in M8. It depends on the persisted payment and refund records and their audited status transitions. It covers only the dashboard summary and basic operational reports required by the PRD:
 - Dashboard summary.
 - Basic sales/order/product/inventory reports.
-- Payment, refund, and net-revenue distinctions required by the PRD acceptance criteria. The calculation definitions, including how manual refunds are accounted for, must be agreed before implementation; this plan does not define new business rules.
+- Payment, refund, and net-revenue distinctions required by the PRD acceptance criteria. For this MVP, net revenue is verified payment amounts minus actual amounts of refunds with status `processed`; partial refunds use their recorded amount. Pending and rejected refunds are excluded from the net-revenue deduction. Reconciliation uses the refund/payment records created in M8.
 - Basic report export with authorization and CSV formula-injection protection.
 
 **Gate:** report values reconcile with source transactions.

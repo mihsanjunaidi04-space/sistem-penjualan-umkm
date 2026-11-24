@@ -110,6 +110,10 @@ Jangan mengandalkan route guard, hidden button, UUID, atau user ID dari browser 
 - Pending cancellation blocks proof resubmission and payment approval in the backend.
 - Shipment transitions are validated server-side and do not accept arbitrary frontend status values.
 - Reservation release, order cancellation, product counters, inventory movement, and audit log are atomic.
+- Manual refund operations require admin authorization; customers cannot create or read refund details through the MVP API.
+- Refund creation and processing serialize the payment-level limit check with writes; the sum of `pending` and `processed` refunds must not exceed the received payment amount. Rejected refunds do not count.
+- Processing requires admin confirmation of the manual transfer and a `reference_number`. Transfer failure leaves the refund pending until resolved or rejected with a note; it is not reported as processed.
+- Refund status, payment status and AuditLog updates are atomic. A payment remains `paid` after a partial refund and becomes `refunded` only when processed refunds total the payment amount. Refunds do not change order status or stock.
 - Auto-completion only processes shipped orders at least seven days old and is safe to repeat.
 
 ## 10. File upload
@@ -136,7 +140,7 @@ Untuk bukti transfer:
 - Payment approval idempotent.
 - Reservation tidak double convert/release.
 - Voucher usage limit diperiksa transaksional.
-- Refund dibatasi dana diterima dikurangi refund processed.
+- Refund `pending` + `processed` dibatasi dana payment yang diterima; refund `rejected` tidak mengurangi batas. Pemeriksaan agregat dilakukan di dalam transaksi yang terserialisasi agar request bersamaan tidak melewati batas.
 - Perubahan stok/payment dicatat.
 
 ## 11. SQLite boundaries
@@ -176,7 +180,7 @@ Audit aktivitas:
 - Perubahan harga/stok.
 - Payment approval/rejection.
 - Cancellation.
-- Refund.
+- Refund creation, processing, and rejection, including actor, amount, status, and transfer reference where recorded.
 - Perubahan setting penting.
 
 Jangan log password, token, secret, atau bukti transfer mentah. Audit log aplikasi bersifat append-only secara konvensi, bukan immutable secara kriptografis. Salin log kritis ke penyimpanan terpisah.

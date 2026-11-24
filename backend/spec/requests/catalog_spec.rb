@@ -83,6 +83,8 @@ RSpec.describe 'Product catalog API', type: :request do
       post '/admin/products', params: { category_id: category_record.id, name: 'Kopi', sku: 'KP-001', price: 25000, stock_on_hand: 5, reserved_stock: 0, is_active: true }, headers: auth_headers(admin), as: :json
       expect(response).to have_http_status(:created)
       product_id = JSON.parse(response.body).dig('data', 'product', 'id')
+      initial_movement = InventoryMovement.find_by!(product_id: product_id)
+      expect(initial_movement).to have_attributes(movement_type: 'stock_in', quantity: 5, stock_before: 0, stock_after: 5, created_by: admin)
 
       post '/admin/products', params: { category_id: 999_999, name: 'Invalid', sku: 'INV-001', price: -1, stock_on_hand: 1, reserved_stock: 0 }, headers: auth_headers(admin), as: :json
       expect(response).to have_http_status(:unprocessable_content)
@@ -91,12 +93,59 @@ RSpec.describe 'Product catalog API', type: :request do
       expect(JSON.parse(response.body).dig('data', 'products').length).to eq(1)
 
       patch "/admin/products/#{product_id}", params: { stock_on_hand: 2, reserved_stock: 3 }, headers: auth_headers(admin), as: :json
-      expect(response).to have_http_status(:unprocessable_content)
+      expect(response).to have_http_status(:ok)
+      updated_product = Product.find(product_id)
+      expect(updated_product).to have_attributes(stock_on_hand: 2, reserved_stock: 0)
+      expect(updated_product.inventory_movements.order(:id).last).to have_attributes(movement_type: 'stock_out', quantity: -3, stock_before: 5, stock_after: 2)
 
       patch "/admin/products/#{product_id}", params: { is_active: false }, headers: auth_headers(admin), as: :json
       expect(response).to have_http_status(:ok)
       get '/products', params: { q: 'kopi' }
       expect(JSON.parse(response.body).dig('data', 'products')).to be_empty
+    end
+
+    it 'records admin stock increases and decreases with the stock change' do
+      product_record = product(category, stock_on_hand: 10, reserved_stock: 2)
+
+      patch "/admin/products/#{product_record.id}", params: { stock_on_hand: 15 }, headers: auth_headers(admin), as: :json
+      expect(response).to have_http_status(:ok)
+      expect(product_record.reload).to have_attributes(stock_on_hand: 15, reserved_stock: 2)
+      expect(product_record.inventory_movements.last).to have_attributes(movement_type: 'stock_in', quantity: 5, stock_before: 10, stock_after: 15, created_by: admin)
+
+      patch "/admin/products/#{product_record.id}", params: { stock_on_hand: 8 }, headers: auth_headers(admin), as: :json
+      expect(response).to have_http_status(:ok)
+      expect(product_record.reload).to have_attributes(stock_on_hand: 8, reserved_stock: 2)
+      expect(product_record.inventory_movements.order(:id).last).to have_attributes(movement_type: 'stock_out', quantity: -7, stock_before: 15, stock_after: 8, created_by: admin)
+    end
+
+    it 'does not change reserved stock from product parameters or create a zero-delta movement' do
+      product_record = product(category, stock_on_hand: 10, reserved_stock: 2)
+
+      patch "/admin/products/#{product_record.id}", params: { name: 'Nama baru', stock_on_hand: 10, reserved_stock: 0 }, headers: auth_headers(admin), as: :json
+
+      expect(response).to have_http_status(:ok)
+      expect(product_record.reload).to have_attributes(name: 'Nama baru', stock_on_hand: 10, reserved_stock: 2)
+      expect(product_record.inventory_movements).to be_empty
+    end
+
+    it 'rejects stock below reservations without changing product or movement history' do
+      product_record = product(category, stock_on_hand: 10, reserved_stock: 2)
+
+      patch "/admin/products/#{product_record.id}", params: { name: 'Should not persist', stock_on_hand: 1 }, headers: auth_headers(admin), as: :json
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(product_record.reload).to have_attributes(name: 'Keripik Singkong', stock_on_hand: 10, reserved_stock: 2)
+      expect(product_record.inventory_movements).to be_empty
+    end
+
+    it 'does not allow a customer to adjust product stock' do
+      product_record = product(category)
+
+      patch "/admin/products/#{product_record.id}", params: { stock_on_hand: 20 }, headers: auth_headers(customer), as: :json
+
+      expect(response).to have_http_status(:forbidden)
+      expect(product_record.reload.stock_on_hand).to eq(10)
+      expect(product_record.inventory_movements).to be_empty
     end
 
     it 'uploads and removes an allowed product image' do

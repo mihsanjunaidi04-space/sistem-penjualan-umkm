@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_23_085610) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_24_000001) do
   create_table "addresses", force: :cascade do |t|
     t.bigint "user_id", null: false
     t.string "recipient_name", limit: 150, null: false
@@ -316,6 +316,20 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_23_085610) do
     t.check_constraint "stock_on_hand >= 0", name: "products_stock_on_hand_non_negative"
   end
 
+  create_table "refund_idempotency_keys", force: :cascade do |t|
+    t.bigint "admin_id", null: false
+    t.bigint "payment_id", null: false
+    t.bigint "refund_id", null: false
+    t.string "key", limit: 180, null: false
+    t.string "request_hash", limit: 64, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["admin_id", "payment_id", "key"], name: "index_refund_idempotency_keys_on_scope_and_key", unique: true
+    t.index ["refund_id"], name: "index_refund_idempotency_keys_on_refund_id", unique: true
+    t.check_constraint "length(key) BETWEEN 1 AND 180", name: "refund_idempotency_keys_key_length"
+    t.check_constraint "length(request_hash) = 64", name: "refund_idempotency_keys_hash_length"
+  end
+
   create_table "refunds", force: :cascade do |t|
     t.bigint "payment_id", null: false
     t.bigint "order_id", null: false
@@ -491,6 +505,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_23_085610) do
   add_foreign_key "payments", "users", column: "verified_by", on_delete: :restrict
   add_foreign_key "product_images", "products", on_delete: :restrict
   add_foreign_key "products", "categories", on_delete: :restrict
+  add_foreign_key "refund_idempotency_keys", "payments", on_delete: :restrict
+  add_foreign_key "refund_idempotency_keys", "refunds", on_delete: :restrict
+  add_foreign_key "refund_idempotency_keys", "users", column: "admin_id", on_delete: :restrict
   add_foreign_key "refunds", "orders", on_delete: :restrict
   add_foreign_key "refunds", "payments", on_delete: :restrict
   add_foreign_key "refunds", "users", column: "processed_by", on_delete: :restrict
