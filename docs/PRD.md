@@ -49,7 +49,7 @@ Sistem ini menyediakan satu sumber data terpusat untuk katalog, transaksi, pemba
 4. Ulasan dan rating.
 5. Notifikasi sistem.
 6. Dashboard analitik lanjutan.
-7. Ekspor laporan.
+7. Peningkatan ekspor laporan.
 
 Fitur lanjutan tidak boleh menghambat penyelesaian alur transaksi inti. Penerapan dilakukan bertahap mengikuti `DEVELOPMENT_PLAN.md`.
 
@@ -217,8 +217,8 @@ Status setiap entitas dipisahkan. Status tidak boleh diubah bebas melalui endpoi
 - Authentication dan authorization backend.
 - Ownership check untuk resource customer.
 - Password hashing yang kuat.
-- Session cookie HttpOnly dan Secure pada HTTPS.
-- CSRF protection.
+- JWT Bearer Token melalui header `Authorization: Bearer <token>`.
+- Autentikasi API saat ini menggunakan JWT Bearer pada header `Authorization` tanpa cookie sebagai kredensial, sehingga risiko CSRF berbasis pengiriman kredensial cookie tidak berlaku pada alur ini. Hal ini bukan klaim bahwa semua penggunaan JWT bebas dari CSRF; risiko XSS yang dapat mencuri token dari `localStorage` tetap harus dimitigasi.
 - CORS allowlist.
 - Rate limiting.
 - Validasi input dan file.

@@ -1,385 +1,196 @@
-# API DOCUMENTATION
+# API Documentation
 ## Sistem Informasi Penjualan UMKM
 
-**Versi:** 1.1
-**Base path:** `/api/v1`
-**Format:** JSON
-**Waktu:** ISO 8601 UTC  
-**Uang:** integer rupiah
+**Versi:** 1.1\
+**Path prefix:** tidak ada; path di bawah relatif terhadap host API.\
+**Format request:** JSON untuk endpoint JSON; upload gambar katalog dan bukti pembayaran menggunakan `multipart/form-data`.\
+**Format response:** JSON untuk endpoint JSON; unduhan gambar katalog dan bukti pembayaran mengirim file/binary.\
+**Mata uang:** integer rupiah. Timestamp menggunakan ISO 8601 UTC.
 
-## 1. Prinsip
+Dokumen ini memisahkan endpoint yang tersedia dari aturan bisnis dan fitur yang belum tersedia. Endpoint berstatus **Implemented** hanya jika route dan action terkait ada di aplikasi. Fitur yang disebut di PRD tetapi belum memiliki route/action tidak dapat dipanggil sebagai endpoint.
 
-- Backend adalah sumber kebenaran.
-- Semua endpoint privat memerlukan autentikasi.
-- Role dan ownership diperiksa di backend.
-- Tidak ada endpoint generik untuk mengubah status transaksi sesuka client.
-- Request privat menggunakan JWT Bearer Token pada header `Authorization`.
-- Perhitungan harga, diskon, ongkir, dan total dilakukan backend.
-- Error tidak membocorkan stack trace, SQL, secret, atau data sensitif.
+## 1. Konvensi API
 
-## 2. Response envelope
+Response JSON sukses menggunakan `success: true`, `data`, dan biasanya `message`. Error menggunakan `success: false` dan objek `error` berisi `code`, `message`, serta `details`.
 
-Success:
-```json
-{
-  "success": true,
-  "data": {},
-  "message": "Operasi berhasil"
-}
-```
+Endpoint privat memakai `Authorization: Bearer <token>`. Role requirement ditulis pada setiap endpoint. Registrasi publik hanya menghasilkan user ber-role customer.
 
-Error:
-```json
-{
-  "success": false,
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "Data tidak valid",
-    "details": {}
-  }
-}
-```
+Frontend saat ini menyimpan JWT pada `localStorage` dengan key `umkm_token` dan mengirimnya melalui Authorization header. JavaScript pada origin yang sama, termasuk script yang berjalan akibat XSS, dapat membaca token tersebut. Token dapat disalahgunakan sampai kedaluwarsa atau dicabut. React meng-escape teks interpolasi secara default, tetapi itu bukan perlindungan XSS menyeluruh. Tidak ada klaim bahwa localStorage aman atau bahwa CSP/sanitizer khusus sudah diterapkan.
 
-HTTP status umum: 200, 201, 204, 400, 401, 403, 404, 409, 422, 429, 500.
+## 2. Implemented API
 
-## 3. Authentication
+Inventaris ini mencakup **55 route/action aplikasi** yang dideklarasikan di `backend/config/routes.rb`; jumlah ini bukan seluruh route runtime yang dapat ditambahkan Rails atau engine/framework. Setiap baris menyebut action tujuan dan status endpoint; `POST /checkout` berstatus Partial terhadap PRD karena integrasi voucher belum tersedia.
 
-| Method | Endpoint | Akses |
+### 2.1 Health
+
+| Method | Path | Controller/action | Akses | Status | Fungsi dan kontrak penting |
+|---|---|---|---|---|---|
+| GET | `/health` | `HealthCheckController#index` | Publik | Implemented | Health check aplikasi; JSON berisi status `ok`. |
+| GET | `/up` | `Rails::HealthController#show` | Publik | Implemented | Rails health endpoint. |
+
+### 2.2 Authentication
+
+| Method | Path | Controller/action | Akses | Status | Fungsi dan kontrak penting |
+|---|---|---|---|---|---|
+| POST | `/auth/register` | `AuthController#register` | Publik | Implemented | Menerima `name`, `email`, `password`, `password_confirmation`; membuat customer dan mengembalikan token serta user. Rate limited. |
+| POST | `/auth/login` | `AuthController#login` | Publik | Implemented | Menerima `email` dan `password`; mengembalikan token serta user bila kredensial valid. Rate limited. |
+| DELETE | `/auth/logout` | `AuthController#logout` | JWT valid | Implemented | Mencabut token saat ini. |
+| GET | `/auth/me` | `AuthController#me` | JWT valid | Implemented | Mengembalikan user saat ini. |
+| PATCH | `/auth/profile` | `AuthController#update_profile` | JWT valid, user aktif | Implemented | Hanya field `name` yang diizinkan untuk diubah. |
+| GET | `/auth/admin` | `AuthController#admin_only` | Admin | Implemented | Memeriksa akses admin dan mengembalikan role. |
+| GET | `/auth/customer` | `AuthController#customer_only` | Customer | Implemented | Memeriksa akses customer dan mengembalikan role. |
+
+Tidak ada route untuk forgot/reset password saat ini.
+
+### 2.3 Customer profile and addresses
+
+| Method | Path | Controller/action | Akses | Status | Fungsi dan kontrak penting |
+|---|---|---|---|---|---|
+| GET | `/customer/addresses` | `AddressesController#index` | Customer | Implemented | Mengembalikan alamat milik customer saat ini. |
+| POST | `/customer/addresses` | `AddressesController#create` | Customer | Implemented | Membuat alamat untuk customer saat ini. Field yang diterima: `recipient_name`, `phone`, `address_line`, `province`, `city`, `district`, `postal_code`, `notes`, `is_default`. |
+| PATCH | `/customer/addresses/:id` | `AddressesController#update` | Customer pemilik alamat | Implemented | Memperbarui field alamat yang diizinkan; `user_id` tidak diterima dari client. |
+| DELETE | `/customer/addresses/:id` | `AddressesController#destroy` | Customer pemilik alamat | Implemented | Menghapus alamat. Jika alamat itu default, controller memilih alamat lain milik user yang sama bila tersedia. |
+
+Database menegakkan maksimal satu alamat default per user melalui partial unique index. Alamat transaksi disalin sebagai snapshot saat checkout; perubahan alamat setelah checkout tidak mengubah snapshot order.
+
+Jika user belum memiliki alamat, alamat pertama menjadi default kecuali request secara eksplisit mengirim `is_default: false`. Menetapkan alamat lain sebagai default mengganti default sebelumnya dalam scope user yang sama. Jika alamat default dihapus, alamat lain milik user tersebut dipilih bila masih ada.
+
+### 2.4 Catalog
+
+| Method | Path | Controller/action | Akses | Status | Fungsi dan kontrak penting |
+|---|---|---|---|---|---|
+| GET | `/categories` | `CategoriesController#index` | Publik | Implemented | Daftar kategori aktif. |
+| GET | `/categories/:slug` | `CategoriesController#show` | Publik | Implemented | Detail kategori aktif dan produk aktif di dalamnya. |
+| GET | `/products` | `ProductsController#index` | Publik | Implemented | Daftar produk/kategori aktif. Query yang didukung: `q`, `category`, `page`, `per_page`; ukuran halaman dibatasi 50. |
+| GET | `/products/:slug` | `ProductsController#show` | Publik | Implemented | Detail produk aktif. |
+| GET | `/products/:slug/images/:image_id` | `ProductsController#image` | Publik | Implemented | Mengirim konten gambar katalog (bukan JSON) setelah pemeriksaan file. |
+| GET | `/shipping-methods` | `ShippingMethodsController#index` | Customer | Implemented | Daftar metode pengiriman aktif. Ini route pembacaan metode yang tersedia; tidak ada route admin untuk membuat atau mengubah metode pengiriman. |
+
+### 2.5 Cart and checkout
+
+| Method | Path | Controller/action | Akses | Status | Fungsi dan kontrak penting |
+|---|---|---|---|---|---|
+| GET | `/cart` | `CartController#index` | Customer | Implemented | Mengembalikan cart milik user saat ini. |
+| POST | `/cart/items` | `CartController#create_item` | Customer | Implemented | Menerima `product_id` dan `quantity`; produk harus aktif dan stok tersedia. |
+| PATCH | `/cart/items/:id` | `CartController#update_item` | Customer pemilik item | Implemented | Mengubah `quantity`; memeriksa status produk dan stok tersedia. |
+| DELETE | `/cart/items/:id` | `CartController#destroy_item` | Customer pemilik item | Implemented | Menghapus item dari cart milik user saat ini. |
+| DELETE | `/cart/items` | `CartController#clear` | Customer | Implemented | Mengosongkan cart milik user saat ini. |
+| POST | `/checkout` | `CheckoutController#create` → `CheckoutService#call` | Customer | Partial terhadap PRD | Menerima `address_id`, `shipping_method_id`, dan opsional `customer_notes`; wajib menyertakan header `Idempotency-Key`. Mengembalikan order yang dibuat. Voucher belum terintegrasi. |
+
+Checkout memverifikasi metode pengiriman aktif, mencari alamat melalui association user saat ini, dan mencari cart dengan `user_id` user tersebut. Produk serta kategori harus aktif, kuantitas harus positif, dan stok tersedia diperiksa serta direservasi dalam transaksi. Checkout membuat order, item order, snapshot nama/SKU/harga dan snapshot penerima/alamat, payment `pending` dengan metode `manual_transfer`, serta reservation dan movement stok; kemudian cart dikosongkan. Deadline pembayaran adalah 12 jam. Harga/diskon dari client tidak diterima; implementasi checkout saat ini menetapkan diskon nol dan belum mengintegrasikan voucher. Karena kebutuhan voucher pada PRD belum tersedia, endpoint checkout berstatus Partial terhadap PRD.
+
+Idempotency key yang sama dengan payload sama mengulang hasil tersimpan; payload berbeda menghasilkan conflict. Kegagalan checkout menghapus record idempotency yang belum berhasil.
+
+### 2.6 Orders
+
+| Method | Path | Controller/action | Akses | Status | Fungsi dan kontrak penting |
+|---|---|---|---|---|---|
+| GET | `/customer/orders` | `OrdersController#index` | Customer | Implemented | Daftar order milik user saat ini, termasuk item, payment, shipment, cancellation requests, dan payment instructions yang tersedia. |
+| GET | `/customer/orders/:id` | `OrdersController#show` | Pemilik order | Implemented | Detail order milik user saat ini. Data payment, shipment, cancellation, dan instruksi pembayaran terdapat dalam response; tidak ada endpoint GET payment terpisah pada customer order. |
+| GET | `/admin/orders` | `Admin::OrdersController#index` | Admin | Implemented | Daftar order; mendukung filter `status` dan pencarian `q` pada nomor order. |
+| GET | `/admin/orders/:id` | `Admin::OrdersController#show` | Admin | Implemented | Detail order. |
+
+Snapshot item dan alamat disimpan pada order agar histori tidak mengikuti perubahan katalog atau alamat berikutnya.
+
+### 2.7 Payments and payment proof
+
+| Method | Path | Controller/action | Akses | Status | Fungsi dan kontrak penting |
+|---|---|---|---|---|---|
+| POST | `/customer/orders/:order_id/payment-proof` | `PaymentsController#upload_proof` | Pemilik order | Implemented | `multipart/form-data`, field `proof`; order harus `awaiting_payment`, payment `pending`/`rejected`, deadline belum lewat, dan tidak ada cancellation pending. Mengubah payment menjadi `waiting_verification`. |
+| GET | `/customer/orders/:order_id/payment-proofs/:proof_id` | `PaymentsController#proof` | Pemilik order | Implemented | Mengirim file bukti secara privat setelah ownership check. |
+| GET | `/admin/payments` | `Admin::PaymentsController#index` | Admin | Implemented | Daftar payment; query `status` tersedia dan default-nya `waiting_verification`. |
+| GET | `/admin/payments/:id` | `Admin::PaymentsController#show` | Admin | Implemented | Detail payment, order, bukti, dan riwayat verifikasi. |
+| GET | `/admin/payments/:id/proofs/:proof_id` | `Admin::PaymentsController#proof` | Admin | Implemented | Mengirim file bukti secara privat. URL dalam response admin adalah endpoint terotorisasi, bukan URL publik permanen. |
+| POST | `/admin/payments/:id/approve` | `Admin::PaymentsController#approve` | Admin | Implemented | Memverifikasi payment dan memproses perubahan order/reservation secara transaksional. |
+| POST | `/admin/payments/:id/reject` | `Admin::PaymentsController#reject` | Admin | Implemented | Menolak bukti; menerima `reason`. |
+
+Bukti pembayaran divalidasi berdasarkan ukuran, ekstensi, dan MIME type hasil deteksi. Ukuran maksimal 5 MB; format yang diterima JPG/JPEG, PNG, atau WEBP. Upload memakai `multipart/form-data`, field `proof`. Upload bukti bukan konfirmasi dana diterima; payment baru dianggap `paid` setelah admin menyetujui bukti.
+
+Payment states yang dikenal model: `pending`, `waiting_verification`, `paid`, `rejected`, `expired`, `refunded`. Proof states: `submitted`, `approved`, `rejected`. Route approval/rejection hanya menangani verifikasi payment/proof; tidak ada gateway pembayaran.
+
+### 2.8 Cancellation
+
+| Method | Path | Controller/action | Akses | Status | Fungsi dan kontrak penting |
+|---|---|---|---|---|---|
+| GET | `/customer/orders/:order_id/cancellation-requests` | `CancellationRequestsController#index` | Pemilik order | Implemented | Daftar cancellation request pada order milik user. |
+| POST | `/customer/orders/:order_id/cancellation-requests` | `CancellationRequestsController#create` | Pemilik order | Implemented | Menerima `reason`; membuat request jika aturan eligibility terpenuhi. |
+| GET | `/admin/cancellation-requests` | `Admin::CancellationRequestsController#index` | Admin | Implemented | Daftar request; query `status` opsional, default `pending`. |
+| POST | `/admin/cancellation-requests/:id/approve` | `Admin::CancellationRequestsController#approve` | Admin | Implemented | Menyetujui request dan melepas reservation terkait dalam transaksi. |
+| POST | `/admin/cancellation-requests/:id/reject` | `Admin::CancellationRequestsController#reject` | Admin | Implemented | Menolak request; menerima `admin_note`. |
+
+Pengajuan mensyaratkan order `awaiting_payment`, deadline belum lewat, tidak ada cancellation yang masih pending, dan payment berstatus `pending`, `rejected`, atau `waiting_verification`. `cancelled` bukan status eligible. Bila request disetujui saat payment menunggu verifikasi, payment dan proof submitted ditolak. Refund bukan bagian otomatis dari endpoint cancellation.
+
+### 2.9 Shipping
+
+| Method | Path | Controller/action | Akses | Status | Fungsi dan kontrak penting |
+|---|---|---|---|---|---|
+| POST | `/admin/orders/:order_id/shipments` | `Admin::ShipmentsController#create` | Admin | Implemented | Membuat shipment untuk order eligible. |
+| PATCH | `/admin/shipments/:id/pack` | `Admin::ShipmentsController#pack` | Admin | Implemented | Mengubah shipment dari `not_shipped` menjadi `packed`. |
+| PATCH | `/admin/shipments/:id/ship` | `Admin::ShipmentsController#ship` | Admin | Implemented | Menerima `tracking_number`; mengirim shipment dan mengubah order menjadi `shipped`. |
+| PATCH | `/admin/shipments/:id/deliver` | `Admin::ShipmentsController#deliver` | Admin | Implemented | Menandai shipment `delivered`. |
+
+Shipment hanya dibuat untuk order `processing` dengan payment `paid`; maksimal satu shipment per order. Transisi shipment diperiksa oleh service. Pengiriman dikelola manual; tidak ada integrasi courier API. Informasi shipment tersedia pada response detail order customer dan admin.
+
+### 2.10 Admin catalog and payment settings
+
+| Method | Path | Controller/action | Akses | Status | Fungsi dan kontrak penting |
+|---|---|---|---|---|---|
+| GET | `/admin/categories` | `Admin::CategoriesController#index` | Admin | Implemented | Daftar kategori. |
+| POST | `/admin/categories` | `Admin::CategoriesController#create` | Admin | Implemented | Membuat kategori dengan atribut yang diizinkan controller. |
+| PATCH | `/admin/categories/:id` | `Admin::CategoriesController#update` | Admin | Implemented | Memperbarui kategori. |
+| GET | `/admin/products` | `Admin::ProductsController#index` | Admin | Implemented | Daftar produk; mendukung `category_id` dan `q`. |
+| POST | `/admin/products` | `Admin::ProductsController#create` | Admin | Implemented | Membuat produk. |
+| PATCH | `/admin/products/:id` | `Admin::ProductsController#update` | Admin | Implemented | Memperbarui produk. |
+| POST | `/admin/products/:id/images` | `Admin::ProductsController#upload_image` | Admin | Implemented | Mengunggah gambar melalui multipart file dan metadata gambar. |
+| DELETE | `/admin/products/:id/images/:image_id` | `Admin::ProductsController#delete_image` | Admin | Implemented | Menghapus gambar produk. |
+| GET | `/admin/payment-settings` | `Admin::PaymentsController#settings` | Admin | Implemented | Mengembalikan `bank_name`, `bank_account_name`, `bank_account_number`, dan `bank_transfer_instructions`. |
+| PATCH | `/admin/payment-settings` | `Admin::PaymentsController#update_settings` | Admin | Implemented | Memperbarui field pengaturan yang diizinkan dan mengembalikan settings. |
+
+## 3. Business Rules
+
+### Authentication and profile
+
+- API menggunakan JWT Bearer Token melalui `Authorization: Bearer <token>`; token tidak diterima dari role yang dikirim client sebagai sumber otorisasi.
+- Backend memvalidasi token, status user, role, dan ownership sesuai endpoint; role yang dikirim client tidak memberi hak akses.
+- JWT frontend saat ini disimpan di `localStorage`, yang dapat dibaca JavaScript pada origin yang sama. Ini merupakan risiko pencurian token jika terjadi XSS, bukan proteksi XSS.
+- Profile memakai `/auth/me` untuk membaca dan `/auth/profile` untuk memperbarui nama saja.
+
+### Cart, checkout, and transaction snapshots
+
+- Validasi user serta kepemilikan cart dan alamat.
+- Semua operasi cart menggunakan cart milik user yang terautentikasi. Checkout mencari cart berdasarkan user tersebut dan alamat melalui alamat milik user yang sama.
+- Checkout memvalidasi metode pengiriman aktif, produk/kategori aktif, kuantitas, dan stok; operasi pembentukan order/reservation bersifat transaksional.
+- Checkout menyimpan snapshot item dan alamat penerima. Pengubahan alamat/katalog setelah checkout tidak mengganti snapshot order historis.
+- Diskon checkout saat ini nol. Voucher belum terintegrasi dalam checkout.
+
+### Payments, cancellation, and refunds
+
+- Pembayaran adalah transfer bank manual. Bukti transfer perlu diperiksa admin; upload tidak berarti dana sudah diterima.
+- Refund dilakukan secara manual sesuai kebijakan. API/service workflow refund otomatis belum tersedia. Model/schema mengenal payment status `refunded` dan tabel refund, tetapi tidak ada endpoint/service yang otomatis mencatat refund atau mentransisikan payment ke status itu.
+- Cancellation eligibility memakai payment states `pending`, `rejected`, `waiting_verification` serta syarat order/deadline yang dijelaskan di atas.
+
+### Shipping
+
+- Metode yang ditampilkan melalui API adalah metode aktif. Pengelolaan shipment dilakukan admin secara manual melalui transisi yang tersedia.
+- Tidak ada API courier tracking atau pengelolaan admin shipping methods saat ini.
+
+## 4. Planned, Partial, and Deferred
+
+Bagian ini bukan daftar endpoint yang tersedia. Tidak ada path, request schema, response schema, atau tanggal implementasi yang ditetapkan di sini untuk fitur yang belum memiliki route.
+
+| Fitur | Status | Yang dapat dipastikan dari source saat ini |
 |---|---|---|
-| POST | `/auth/register` | Publik |
-| POST | `/auth/login` | Publik |
-| DELETE | `/auth/logout` | Login |
-| GET | `/auth/me` | Login |
-| POST | `/auth/forgot-password` | Publik |
-| POST | `/auth/reset-password` | Publik |
-
-Gunakan `Authorization: Bearer <token>` untuk endpoint privat. Login/register mengembalikan JWT; logout mencatat token pada penyimpanan revocation. Token menggunakan HS256 dan masa berlaku 24 jam. Registrasi publik hanya membuat customer.
-
-**Penyimpanan frontend saat ini:** JWT disimpan pada `localStorage` dengan key `umkm_token`, lalu dibaca untuk mengirim header Bearer. `localStorage` dapat dibaca JavaScript pada origin yang sama; XSS yang berhasil dapat mencuri token dan menggunakannya sampai token kedaluwarsa atau dicabut. React meng-escape teks interpolasi secara default, namun ini bukan pencegahan XSS menyeluruh. Tidak ditemukan konfigurasi CSP atau sanitizer khusus untuk mengurangi risiko tersebut. Penyimpanan token perlu diperlakukan sebagai risiko keamanan yang diketahui.
-
-Secret signing wajib tersedia di `JWT_SECRET` atau Rails credentials `jwt.secret`. Di production secret wajib minimal 32 byte; konfigurasi hilang atau lemah membuat aplikasi gagal saat startup. Development/test menggunakan secret lokal khusus proses dan tidak memakai secret production. Jangan log secret atau memasukkannya ke repository.
-
-CORS development/test mengizinkan `http://localhost:5173`. Production memerlukan `CORS_ALLOWED_ORIGINS` berisi daftar origin HTTPS dipisahkan koma; whitespace di sekitar origin diabaikan. Origin kosong, tidak valid, HTTP, dan wildcard `*` ditolak. CORS credentials tidak diaktifkan.
-
-## 4. Public catalog
-
-- GET `/products`
-- GET `/products/:slug`
-- GET `/products/:slug/images/:image_id`
-- GET `/categories`
-- GET `/categories/:slug`
-
-Hanya produk/kategori aktif yang ditampilkan. Filter, sort, pagination, dan ukuran page divalidasi dan dibatasi.
-
-## 5. Admin catalog
-
-- GET `/admin/categories`
-- POST `/admin/products`
-- GET `/admin/products`
-- PATCH `/admin/products/:id`
-- POST `/admin/products/:id/images`
-- DELETE `/admin/products/:id/images/:image_id`
-- POST `/admin/categories`
-- PATCH `/admin/categories/:id`
-
-Penghapusan produk yang sudah memiliki histori transaksi harus mempertahankan histori; pertimbangkan nonaktifkan/soft delete.
-
-Upload gambar katalog menerima JPEG, PNG, atau WebP dengan ukuran maksimum 5 MB. File diberi storage key acak dan tidak menggunakan nama file dari client. Penyimpanan lokal digunakan pada tahap awal; object storage/CDN untuk production masih merupakan keputusan terbuka.
-
-## 6. Customer profile and addresses
-
-- GET `/customer/profile`
-- PATCH `/customer/profile`
-- GET `/customer/addresses`
-- POST `/customer/addresses`
-- PATCH `/customer/addresses/:id`
-- DELETE `/customer/addresses/:id`
-
-Customer hanya mengakses data miliknya.
-
-## 7. Cart
-
-- GET `/cart`
-- POST `/cart/items`
-- PATCH `/cart/items/:id`
-- DELETE `/cart/items/:id`
-- DELETE `/cart/items`
-
-Quantity harus positif. Harga cart bukan harga final checkout.
-
-Cart hanya dapat diakses customer pemilik sesi. Produk harus aktif dan berada pada kategori aktif; backend memeriksa stok sebelum menambah atau mengubah quantity.
-
-## 8. Checkout
-
-- POST `/checkout`
-- GET `/shipping-methods`
-- GET `/customer/addresses`
-- GET `/customer/orders`
-- GET `/customer/orders/:id`
-
-Header:
-```http
-Idempotency-Key: <unique-key>
-```
-
-Request mengirim referensi alamat, item/keranjang, metode pengiriman, dan voucher bila digunakan. Jangan menerima harga final dari client.
-
-Backend:
-1. Validasi user dan ownership alamat/cart.
-2. Ambil harga aktual.
-3. Validasi produk aktif dan stok.
-4. Hitung subtotal, diskon, ongkir, total.
-5. Buat order dan snapshot item.
-6. Buat payment `pending`.
-7. Buat inventory reservation.
-8. Buat voucher redemption bila diperlukan.
-9. Tetapkan deadline 12 jam.
-10. Simpan idempotency result.
-11. Commit atomik.
-
-Checkout membuat payment `pending` sebagai placeholder transaksi M6. Upload bukti dan verifikasi pembayaran adalah scope M7.
-
-Key sama dan payload sama mengembalikan hasil yang sama. Key sama dengan payload berbeda menghasilkan conflict. Concurrency test wajib.
-
-## 9. Customer orders
-
-- GET `/customer/orders`
-- GET `/customer/orders/:id`
-- POST `/customer/orders/:id/cancellation-requests`
-- GET `/customer/orders/:id/cancellation-requests`
-
-Ownership wajib diperiksa. Cancellation request tidak langsung mengubah order status.
-
-## 10. Payments and proofs
-
-Customer:
-- GET `/customer/orders/:order_id/payment`
-- POST `/customer/orders/:order_id/payment-proof`
-- GET `/customer/orders/:order_id/payment-proofs/:proof_id`
-
-Admin:
-- GET `/admin/payments`
-- GET `/admin/payments/:id`
-- GET `/admin/payments/:id/proofs/:proof_id`
-- POST `/admin/payments/:id/approve`
-- POST `/admin/payments/:id/reject`
-
-Payment states:
-- `pending`
-- `waiting_verification`
-- `paid`
-- `rejected`
-- `expired`
-- `refunded`
-
-Proof states:
-- `submitted`
-- `approved`
-- `rejected`
-
-Upload proof tidak berarti dana diterima. Proof disimpan privat, divalidasi MIME/signature/size, dan hanya dapat diakses setelah authorization. Approval harus idempotent dan atomik terhadap order, stock, reservation, voucher, dan audit log.
-
-## 11. Cancellation
-
-Admin:
-- GET `/admin/cancellation-requests`
-- GET `/admin/cancellation-requests/:id`
-- POST `/admin/cancellation-requests/:id/approve`
-- POST `/admin/cancellation-requests/:id/reject`
-
-Status request: `pending`, `approved`, `rejected`. Order menjadi `cancelled` setelah persetujuan sah. Jika pembayaran sudah diterima, refund manual diperlukan.
-
-## 12. Refund
-
-Admin:
-- GET `/admin/refunds`
-- GET `/admin/refunds/:id`
-- POST `/admin/orders/:order_id/refunds`
-- POST `/admin/refunds/:id/mark-processed`
-- POST `/admin/refunds/:id/reject`
-
-Status: `pending`, `processed`, `rejected`. MVP refund manual di luar payment gateway. Nominal tidak boleh melebihi pembayaran diterima dikurangi refund processed. `processed` hanya setelah dana benar-benar dikembalikan dan dikonfirmasi. Payment menjadi `refunded` setelah seluruh kewajiban refund selesai.
-
-## 13. Shipping
-
-Customer:
-- GET `/customer/orders/:id` (mengandung data shipment jika ada)
-
-Admin:
-- GET `/admin/shipping-methods`
-- POST `/admin/shipping-methods`
-- PATCH `/admin/shipping-methods/:id`
-- POST `/admin/orders/:order_id/shipments`
-- PATCH `/admin/shipments/:id/pack`
-- PATCH `/admin/shipments/:id/ship`
-- PATCH `/admin/shipments/:id/deliver`
-
-Metode awal Reguler dan Express. Satu shipment per order untuk MVP. Admin mengelola manual. Status harus mengikuti transisi valid. Tidak ada klaim pelacakan otomatis kurir.
-
-**Catatan:** Endpoint `GET /customer/orders/:order_id/shipment` tidak tersedia sebagai route terpisah. Data shipment dikembalikan sebagai bagian dari response `GET /customer/orders/:id` (section 9).
-
-## 14. Inventory
-
-Admin:
-- GET `/admin/inventory`
-- GET `/admin/inventory/movements`
-- POST `/admin/inventory/adjustments`
-
-Adjustment memerlukan alasan dan audit log. Stok tidak boleh negatif. Reservation tidak boleh dikonversi/dilepas dua kali.
-
-## 15. Vouchers
-
-Customer:
-- POST `/vouchers/validate`
-
-Admin:
-- GET `/admin/vouchers`
-- POST `/admin/vouchers`
-- PATCH `/admin/vouchers/:id`
-- POST `/admin/vouchers/:id/deactivate`
-
-Validasi saat checkout wajib diulang secara atomik, termasuk periode, kuota, minimum pembelian, batas per pengguna, dan status voucher.
-
-## 16. Wishlist and reviews
-
-- GET `/customer/wishlist`
-- POST `/customer/wishlist/items`
-- DELETE `/customer/wishlist/items/:id`
-- GET `/products/:product_id/reviews`
-- POST `/customer/order-items/:order_item_id/reviews`
-- PATCH `/customer/reviews/:id`
-- GET `/admin/reviews`
-- PATCH `/admin/reviews/:id/moderation`
-
-Review harus terkait order item yang memenuhi syarat; satu order item maksimal satu review.
-
-## 17. Notifications
-
-- GET `/customer/notifications`
-- PATCH `/customer/notifications/:id/read`
-- PATCH `/customer/notifications/read-all`
-
-Ownership wajib diperiksa.
-
-## 18. Dashboard and reports
-
-- GET `/admin/dashboard/summary`
-- GET `/admin/reports/sales`
-- GET `/admin/reports/orders`
-- GET `/admin/reports/products`
-- GET `/admin/reports/inventory`
-- GET `/admin/reports/export`
-
-Laporan membedakan pembayaran terverifikasi, refund processed, pendapatan bersih, order belum dibayar, order dibatalkan, stok tersedia, dan stok terreservasi. CSV export harus membatasi akses, filter, ukuran, dan mencegah formula injection.
-
-## 19. State transitions
-
-Order:
-- `awaiting_payment` → `processing` setelah payment verified.
-- `awaiting_payment` → `cancelled` karena expiry atau cancellation yang sah.
-- `processing` → `shipped` setelah shipment dikirim.
-- `shipped` → `completed` setelah aturan penyelesaian terpenuhi.
-
-Payment:
-- `pending` → `waiting_verification` saat proof diajukan.
-- `pending` → `expired` setelah deadline tanpa proof.
-- `waiting_verification` → `paid` setelah approval.
-- `waiting_verification` → `rejected` setelah rejection.
-- `rejected` → `waiting_verification` jika resubmission masih diizinkan.
-- `paid` → `refunded` setelah refund selesai seluruhnya.
-
-Shipment:
-- `not_shipped` → `packed` → `shipped` → `delivered`.
-
-Cancellation request:
-- `pending` → `approved` atau `rejected`.
-
-Refund:
-- `pending` → `processed` atau `rejected`.
-
-Backend memvalidasi aktor, status awal, izin, dan kondisi bisnis. Tidak ada arbitrary status update.
-
-**Batasan MVP (keputusan owner D8):** fitur dispute/sengketa tidak termasuk dalam MVP. Auto-completion tidak memiliki exception handling untuk sengketa. Jika fitur sengketa belum tersedia, jangan mengklaim sistem mampu mendeteksi sengketa.
-
-## 20. Rate limiting baseline
-
-Nilai awal untuk diuji dan disesuaikan:
-- Login: 5/menit per akun dan IP.
-- Password reset: 3/jam per akun.
-- Registration: 5/jam per IP.
-- Product search: 60/menit per pengguna.
-- Checkout: 5/menit per pengguna.
-- Proof upload: 5/jam per order.
-- General API: 120/menit per pengguna.
-
-Tambahkan batas ukuran payload, pagination, dan resource consumption.
-
-## 21. Security requirements
-
-- Authentication dan authorization pada setiap endpoint privat.
-- Ownership check untuk mencegah IDOR/BOLA.
-- Parameterized query/ORM.
-- Input validation.
-- CORS allowlist sesuai environment.
-- HTTPS pada produksi.
-- File proof private.
-- Error tanpa stack trace.
-- Audit log tindakan sensitif.
-- Secret di environment/secret manager.
-- Dependency vulnerability review.
-- Backup dan restore test.
-
-## 22. API acceptance tests
-
-- Customer A tidak dapat membaca order Customer B.
-- Customer tidak dapat memanggil admin endpoint.
-- Harga client tidak mengubah total.
-- Idempotency mencegah order duplikat.
-- Concurrent checkout tidak oversell.
-- Upload proof tidak mengesahkan payment.
-- Approval tidak dapat double-process.
-- Refund tidak melebihi dana.
-- Private proof tidak dapat diakses tanpa izin.
-- State transition ilegal ditolak.
-- Scheduled job aman diulang.
-
-## 23. M8 final implementation contract
-
-Implemented M8 routes are:
-
-- `GET /admin/orders` with optional `status` and `q` filters
-- `GET /admin/orders/:id`
-- `POST /admin/orders/:order_id/shipments`
-- `PATCH /admin/shipments/:id/pack`
-- `PATCH /admin/shipments/:id/ship` with required `tracking_number`
-- `PATCH /admin/shipments/:id/deliver`
-- `GET /admin/cancellation-requests`
-- `POST /admin/cancellation-requests/:id/approve`
-- `POST /admin/cancellation-requests/:id/reject` with required `admin_note`
-- `GET/POST /customer/orders/:order_id/cancellation-requests`
-
-Cancellation is eligible only for an `awaiting_payment` order whose payment is `pending`, `rejected`, or `waiting_verification`. A pending cancellation blocks payment proof resubmission and payment approval. Refund is not performed by these endpoints.
-
-## 24. Catatan kontrak
-
-Endpoint di atas merupakan kontrak rancangan. Sebelum implementasi, cocokkan dengan migration, model, authorization policy, konfigurasi JWT Bearer dan CORS, serta kebutuhan UI. Perubahan endpoint harus memperbarui dokumen ini dan test terkait.
-
-Deployment SQLite tahap awal dibatasi satu host/backend instance dengan persistent storage lokal. WAL tidak menyediakan dukungan multi-writer; jangan gunakan database SQLite pada storage bersama lintas host atau beberapa backend instance.
-# M7 — Payment transfer manual
-
-Endpoint customer:
-
-- `GET /customer/orders/:id` mengembalikan jumlah, deadline, status payment, riwayat bukti, dan `payment_instructions` dari `store_settings`.
-- `POST /customer/orders/:order_id/payment-proof` menerima multipart field `proof`. Hanya order milik customer, status `awaiting_payment`, dan payment `pending`/`rejected` sebelum deadline yang diterima.
-- `GET /customer/orders/:order_id/payment-proofs/:proof_id` mengirim file secara privat setelah ownership check.
-
-Endpoint admin (semua memerlukan role `admin`):
-
-- `GET /admin/payments?status=waiting_verification`
-- `GET /admin/payments/:id`
-- `GET /admin/payments/:id/proofs/:proof_id`
-- `POST /admin/payments/:id/approve`
-- `POST /admin/payments/:id/reject` dengan JSON `{ "reason": "..." }`
-- `GET/PATCH /admin/payment-settings` dengan key `bank_name`, `bank_account_name`, `bank_account_number`, dan `bank_transfer_instructions`.
-
-Bukti transfer tidak pernah dikembalikan sebagai URL publik permanen. URL admin hanya endpoint terotorisasi dan file berada di private disk.
+| Password reset | Planned (M4 — Authentication and authorization) | Belum ada route/action reset password. Path dan alur email tidak ditetapkan dalam dokumen ini. |
+| Voucher | Partial / Planned (M10) | Model/schema voucher dan redemption tersedia; route voucher dan integrasi validasi/reservasi voucher pada checkout belum tersedia. Batas per-user tidak diklaim telah ditegakkan oleh checkout. |
+| Wishlist | Planned (M10) | Model/schema tersedia, tetapi API route wishlist tidak tersedia. |
+| Notifications | Planned (M10) | Model tersedia, tetapi API route notifications tidak tersedia. |
+| Inventory administration | Partial; advanced inventory planned (M10) | API khusus administrasi atau adjustment inventory belum tersedia. `PATCH /admin/products/:id` tetap dapat memperbarui `stock_on_hand` dan `reserved_stock` melalui strong parameters controller. Reservation dan inventory movement digunakan internal oleh alur transaksi, bukan melalui API inventory khusus. |
+| Dashboard and reports | Planned (M9, bagian penyelesaian MVP) | Endpoint dashboard/reports belum tersedia. Dashboard summary dan laporan operasional dasar direncanakan dalam M9 sebagai bagian penyelesaian MVP. Advanced analytics dan peningkatan ekspor laporan tetap berada di M10. |
+| Refund workflow | Deferred | Refund berada di luar implementasi M8 dan dilakukan secara manual sesuai kebijakan. API/service workflow refund otomatis belum tersedia. Model/schema refund tersedia; status `refunded` tidak membuktikan transisi otomatis. |
+| Admin shipping-method management | Partial | API hanya menyediakan pembacaan metode aktif melalui `GET /shipping-methods`; route admin untuk mengelola metode tidak tersedia meskipun pengelolaan metode disebut sebagai kebutuhan admin di PRD. |
+
+`auth_sessions` ditunda sesuai keputusan proyek; pencabutan JWT memakai `jwt_revocations`. Ini tidak menambah endpoint session.
+
+## 5. Implementation Notes
+
+Endpoint lain yang disebut dalam PRD, DATABASE, atau rencana pengembangan tidak otomatis menjadi endpoint API. Status **Implemented** hanya berlaku pada daftar di Bagian 2. Perubahan routes/controller harus diikuti pembaruan daftar endpoint dan test yang sesuai.

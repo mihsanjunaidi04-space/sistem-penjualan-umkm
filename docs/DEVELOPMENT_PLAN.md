@@ -106,11 +106,13 @@ Refund remains outside M8; decisions D2 and D5 are deferred.
 
 **Gate:** transition tests, refund limit, stock consistency, job idempotency.
 
-### M9 — Dashboard and reports
-- Summary.
-- Sales/order/product/inventory reports.
-- Payment vs refund accounting.
-- Export with authorization and CSV formula injection protection.
+### M9 — Dashboard and basic reports (MVP completion)
+
+M9 is part of completing the MVP and follows the core order, payment, cancellation, and shipping flows in M8. It covers only the dashboard summary and basic operational reports required by the PRD:
+- Dashboard summary.
+- Basic sales/order/product/inventory reports.
+- Payment, refund, and net-revenue distinctions required by the PRD acceptance criteria. The calculation definitions, including how manual refunds are accounted for, must be agreed before implementation; this plan does not define new business rules.
+- Basic report export with authorization and CSV formula-injection protection.
 
 **Gate:** report values reconcile with source transactions.
 
@@ -122,7 +124,7 @@ Implementasikan bertahap:
 - Reviews.
 - Notifications.
 - Advanced analytics.
-- Report export improvements.
+- Advanced report export improvements.
 
 **Gate:** setiap fitur memiliki PRD/API/schema/UI/test yang konsisten.
 
