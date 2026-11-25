@@ -100,7 +100,17 @@ class SalesReportService
 
   def bucket_expression(column)
     format = @group_by == "day" ? "%Y-%m-%d" : "%Y-%m"
-    Arel.sql("strftime('#{format}', #{column}, '+8 hours')")
+    table_name, column_name = column.to_s.split(".", 2)
+    table = Arel::Table.new(table_name)
+    column_node = table[column_name.to_sym]
+    Arel::Nodes::NamedFunction.new(
+      "strftime",
+      [
+        Arel::Nodes::Quoted.new(format),
+        column_node,
+        Arel::Nodes::Quoted.new("+8 hours")
+      ]
+    )
   end
 
   def grouped_count(relation, expression)
