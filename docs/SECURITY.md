@@ -103,6 +103,19 @@ Jangan mengandalkan route guard, hidden button, UUID, atau user ID dari browser 
 - Terapkan foreign key, unique/check constraint, dan transaksi.
 - Frontend validation hanya untuk UX.
 
+### M9 reports and CSV controls
+
+- `GET /admin/reports/dashboard`, `GET /admin/reports/sales`, `GET /admin/reports/orders`, `GET /admin/reports/products`, dan `GET /admin/reports/inventory` tersedia dan wajib admin-only melalui authorization backend. Basic CSV Export `GET /admin/reports/:report.csv` juga admin-only dan hanya mengizinkan `sales`, `orders`, serta `products`; Dashboard, Inventory, dan Payments tidak termasuk allowlist. Payments Report terpisah berstatus Deferred, bukan deliverable M9, dan belum dijadwalkan untuk milestone berikutnya. Analitik pembayaran/refund yang diperlukan MVP tersedia melalui Dashboard dan Sales Report; workflow operasional pembayaran dan refund tetap tersedia melalui endpoint operasional masing-masing. Advanced export improvements tetap Planned.
+- Business timezone Rails untuk laporan adalah `Asia/Makassar` (WITA, UTC+08:00). ActiveRecord menyimpan timestamp menggunakan UTC. Filter memakai tanggal kalender WITA; tanggal awal dan akhir inklusif, interval query `[awal hari from, awal hari setelah to)`, dan rentang khusus maksimal 366 hari kalender. Batas WITA dikonversi ke timestamp UTC sebelum query.
+- Sales Report `GET /admin/reports/sales` tersedia sebagai endpoint JSON admin-only M9-04. `from`/`to` wajib divalidasi sebagai tanggal ketat; `group_by` hanya menerima `day` atau `month`, default `day`, dan nilai lain ditolak HTTP 422. `totals` serta `series` hanya memuat agregat yang disetujui, tanpa PII, bukti pembayaran, atau referensi transfer.
+- Sales Report mengelompokkan metrik memakai kalender WITA dan timestamp sumber masing-masing: order `created_at`, payment/produk `verified_at`, refund `processed_at`. Payment `paid`/`refunded` masuk, `rejected` tidak; hanya refund `processed` yang dikurangkan. Bucket harus berurutan, tidak keluar rentang, dan tetap ada dengan nilai nol jika kosong.
+- CSV bukan bagian dari M9-04. Basic CSV Export tersedia untuk Sales, Orders, dan Products dengan batas 10.000 baris per file yang diperiksa sebelum lampiran dikirim. Jangan menambahkan kolom pelanggan atau informasi pembayaran sensitif ke response maupun ekspor.
+- Penerimaan bersih dihitung sebagai payment yang pernah terverifikasi dan saat ini berstatus `paid` atau `refunded` berdasarkan `verified_at`, dikurangi refund `processed` berdasarkan `processed_at`. Status payment `rejected`, refund `pending`, dan refund `rejected` tidak dihitung sebagai penerimaan/deduksi. Payment mencakup ongkir; refund tidak dialokasikan ke produk atau ongkir. Agregasi payment/refund dipisah dari order items untuk mencegah double counting.
+- Laporan produk menghitung bruto item pada order dengan payment terverifikasi dan menyajikan refund terpisah. Laporan order memakai `created_at` serta status terkini. Inventory Report admin-only memisahkan snapshot stok fisik, reserved, tersedia, dan movement fisik `stock_in`/`stock_out` berdasarkan `created_at`; reservation/release bukan penjualan atau stock-in/out. Produk aktif/nonaktif masuk bila memiliki stok/reservasi saat ini atau movement fisik dalam periode. Snapshot bukan histori stok lampau.
+- Nama laporan untuk ekspor harus melalui allowlist. Ekspor hanya berisi kolom agregat yang dibutuhkan dan tidak menyertakan nama, email, telepon, alamat pelanggan, bukti pembayaran, atau referensi transfer.
+- CSV memakai quoting standar serta BOM UTF-8. Quoting saja tidak mencegah formula injection: nilai teks yang diawali `=`, `+`, `-`, `@`, tab, atau karakter baris baru harus dinetralkan sebelum serialisasi.
+- Timestamp ekspor menggunakan ISO 8601 dengan zona waktu jelas; nilai rupiah berupa integer.
+
 ## 9. M8 controls
 
 - Customer cancellation uses ownership checks; admin cancellation and shipment actions require admin authorization.

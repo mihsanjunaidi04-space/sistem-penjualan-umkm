@@ -19,7 +19,7 @@ Frontend saat ini menyimpan JWT pada `localStorage` dengan key `umkm_token` dan 
 
 ## 2. Implemented API
 
-Inventaris ini mencakup **63 route/action aplikasi** yang dideklarasikan di `backend/config/routes.rb`; jumlah ini bukan seluruh route runtime yang dapat ditambahkan Rails atau engine/framework. Setiap baris menyebut action tujuan dan status endpoint; `POST /checkout` berstatus Partial terhadap PRD karena integrasi voucher belum tersedia.
+Inventaris ini mencakup **69 route/action aplikasi** yang dideklarasikan di `backend/config/routes.rb`; jumlah ini bukan seluruh route runtime yang dapat ditambahkan Rails atau engine/framework. Setiap baris menyebut action tujuan dan status endpoint; `POST /checkout` berstatus Partial terhadap PRD karena integrasi voucher belum tersedia.
 
 ### 2.1 Health
 
@@ -156,6 +156,60 @@ Shipment hanya dibuat untuk order `processing` dengan payment `paid`; maksimal s
 | GET | `/admin/payment-settings` | `Admin::PaymentsController#settings` | Admin | Implemented | Mengembalikan `bank_name`, `bank_account_name`, `bank_account_number`, dan `bank_transfer_instructions`. |
 | PATCH | `/admin/payment-settings` | `Admin::PaymentsController#update_settings` | Admin | Implemented | Memperbarui field pengaturan yang diizinkan dan mengembalikan settings. |
 
+### 2.11 Admin dashboard report
+
+| Method | Path | Controller/action | Akses | Status | Fungsi dan kontrak penting |
+|---|---|---|---|---|---|
+| GET | `/admin/reports/dashboard` | `Admin::ReportsController#dashboard` | Admin | Implemented | Wajib menerima `from` dan `to` dalam format `YYYY-MM-DD`; keduanya inklusif dengan batas maksimum 366 hari. Mengembalikan jumlah order dibuat, payment terverifikasi, refund diproses, penerimaan bersih, ringkasan kuantitas/subtotal bruto produk terjual, serta snapshot stok fisik/reserved/tersedia. |
+
+Periode dashboard memakai kalender `Asia/Makassar` dan query half-open `[awal from, awal hari setelah to)` yang dikonversi ke UTC. Parameter kosong/tanggal tidak valid/rentang terbalik/terlalu panjang menghasilkan HTTP 422 dengan kode error `REPORT_PERIOD_REQUIRED`, `REPORT_DATE_INVALID`, `REPORT_PERIOD_INVALID`, atau `REPORT_PERIOD_TOO_LONG`. Response berisi periode dan timezone. Nilai agregat yang kosong bernilai `0`.
+
+### 2.12 Admin sales report
+
+| Method | Path | Controller/action | Akses | Status | Fungsi dan kontrak penting |
+|---|---|---|---|---|---|
+| GET | `/admin/reports/sales` | `Admin::ReportsController#sales` | Admin | Implemented | Sales Report JSON. Wajib `from` dan `to` (`YYYY-MM-DD`); `group_by=day|month` opsional dengan default `day`. Mengembalikan `period`, `group_by`, `totals`, dan `series`; validasi periode dan `group_by` yang tidak valid menghasilkan HTTP 422. |
+
+### 2.13 Admin order report
+
+| Method | Path | Controller/action | Akses | Status | Fungsi dan kontrak penting |
+|---|---|---|---|---|---|
+| GET | `/admin/reports/orders` | `Admin::ReportsController#orders` | Admin | Implemented | Laporan jumlah order berdasarkan `created_at` dan distribusi status order terkini. Wajib `from` dan `to` (`YYYY-MM-DD`); `group_by=day|month` opsional dengan default `day`. |
+
+Order Report menggunakan periode kalender WITA inklusif maksimal 366 hari dan batas query UTC half-open seperti laporan lain. Parameter tanggal atau grouping tidak valid menghasilkan HTTP 422 dengan kode error laporan yang sesuai. Response berisi `period`, `group_by`, `totals`, dan `series`; `totals` memuat `total_orders` serta `by_status`, dan setiap bucket memuat `period`, `total_orders`, serta lima status (`awaiting_payment`, `processing`, `shipped`, `completed`, `cancelled`). Semua bucket kalender ditampilkan kronologis, termasuk bucket kosong dengan nilai numerik nol. Status adalah keadaan order saat laporan dibuat, bukan histori status pada tanggal bucket. Order dihitung tanpa memfilter status payment.
+
+### 2.14 Admin product report
+
+| Method | Path | Controller/action | Akses | Status | Fungsi dan kontrak penting |
+|---|---|---|---|---|---|
+| GET | `/admin/reports/products` | `Admin::ReportsController#products` | Admin | Implemented | Laporan kuantitas dan gross subtotal per produk dengan payment terverifikasi. Menerima `from` dan `to` wajib, `page` default 1, serta `per_page` default 20 dan maksimum 100. |
+
+Periode memakai kalender WITA inklusif maksimal 366 hari dengan batas query UTC half-open. Hanya payment berstatus `paid` atau `refunded` berdasarkan `payments.verified_at` yang dihitung; `rejected` dikecualikan. Produk dikelompokkan berdasarkan `product_id`, termasuk produk nonaktif yang memiliki penjualan terverifikasi; produk tanpa penjualan pada periode tidak ditampilkan. Nama dan SKU menggunakan identitas katalog saat ini, sedangkan kuantitas dan `gross_amount` berasal dari `order_items.quantity` dan `order_items.subtotal`. Gross product sales tidak mencakup ongkir.
+
+Response memuat `period`, `totals`, `products`, dan `pagination`. `totals` berisi `total_quantity`, `gross_product_amount`, `processed_refund_amount`, dan `total_products_sold` untuk seluruh periode, tidak hanya halaman aktif; `total_products_sold` adalah jumlah `product_id` unik yang memiliki penjualan terverifikasi. Setiap item `products` memiliki `product_id`, `name`, `sku`, `quantity`, dan `gross_amount`. Refund `processed` dihitung terpisah berdasarkan `refunds.processed_at`; refund `pending`/`rejected` tidak dihitung, tidak dialokasikan ke produk, dan tidak mengurangi gross. Urutan produk adalah gross menurun lalu `product_id` menaik. `page` harus berupa bilangan bulat minimal 1; `per_page` bilangan bulat 1–100. Pagination invalid menghasilkan HTTP 422 dengan kode `REPORT_PAGINATION_INVALID`.
+
+### 2.15 Admin report CSV export
+
+| Method | Path | Controller/action | Akses | Status | Fungsi dan kontrak penting |
+|---|---|---|---|---|---|
+| GET | `/admin/reports/:report.csv` | `Admin::ReportsController#export` | Admin | Implemented | Unduhan CSV untuk allowlist `sales`, `orders`, dan `products`; dashboard, inventory, serta payments tidak dapat diekspor melalui endpoint ini. |
+
+Wajib `from` dan `to` format `YYYY-MM-DD`; validasi periode mengikuti `ReportingPeriod` (kalender WITA inklusif, maksimal 366 hari, interval UTC half-open). `group_by=day|month` berlaku untuk sales dan orders dengan default `day`; untuk products parameter `group_by` ditolak. Report di luar allowlist, parameter periode invalid, dan grouping invalid menghasilkan HTTP 422 dalam error envelope API. Ekspor dibatasi 10.000 baris data sebelum file dibuat; produk mencakup seluruh hasil periode, bukan hanya halaman Product Report JSON. Jika batas dilewati, respons HTTP 422 menggunakan kode `export_limit_exceeded` tanpa mengirim lampiran sebagian.
+
+File menggunakan MIME `text/csv; charset=utf-8`, UTF-8 dengan BOM, `Content-Disposition: attachment`, dan nama deterministik: `sales-day|month-<from>-to-<to>.csv`, `orders-day|month-<from>-to-<to>.csv`, atau `products-<from>-to-<to>.csv`. Kolom tetap: sales (`bucket`, enam metrik Sales Report), orders (`period`, `total_orders`, dan lima status terkini), products (`product_id`, `name`, `sku`, `quantity`, `gross_amount`). Angka Rupiah dan kuantitas berupa integer tanpa pemformatan lokal. Isi mengikuti filter dan agregasi report JSON; produk memakai identitas katalog saat ini serta quantity/subtotal snapshot order item. Refund ditampilkan hanya pada metrik refund sales; refund tidak dialokasikan ke produk dan tidak mengurangi gross.
+
+Ekspor tidak memuat PII, alamat, bukti pembayaran, token, atau referensi transfer. Nilai teks berbahaya dinetralkan sebelum serialisasi, lalu CSV writer standar melakukan quoting koma, kutip, dan newline.
+
+### 2.16 Admin inventory report
+
+| Method | Path | Controller/action | Akses | Status | Fungsi dan kontrak penting |
+|---|---|---|---|---|---|
+| GET | `/admin/reports/inventory` | `Admin::ReportsController#inventory` | Admin | Implemented | Snapshot stok saat ini dan pergerakan stok fisik per produk. Menerima `from` dan `to` wajib, `page` default 1, serta `per_page` default 20 dan maksimum 100. |
+
+Periode memakai kalender WITA inklusif maksimal 366 hari dan interval query UTC half-open melalui `ReportingPeriod`. Produk aktif maupun nonaktif disertakan jika stok fisik/reserved saat ini lebih dari nol atau memiliki pergerakan fisik pada periode. Produk dengan stok/reserved nol dan tanpa pergerakan pada periode tidak disertakan. Snapshot `stock_on_hand`, `reserved_stock`, dan `available_stock` menunjukkan keadaan saat endpoint dipanggil, bukan keadaan historis pada akhir tanggal `to`.
+
+Hanya `inventory_movements` bertipe `stock_in` dan `stock_out` dengan `created_at` dalam periode yang dihitung. `stock_in_quantity` dan `stock_out_quantity` disajikan sebagai kuantitas positif; reservation, reservation release, conversion, adjustment, dan tipe lain tidak termasuk pergerakan fisik laporan ini. Response berisi `period`, `totals`, `products`, dan `pagination`. `totals` berisi jumlah produk yang memenuhi kriteria, total snapshot stok fisik/reserved/tersedia, serta kuantitas stock-in/out untuk seluruh hasil, bukan hanya halaman aktif. Setiap produk menyertakan `product_id`, `name`, `sku`, `is_active`, `stock_on_hand`, `reserved_stock`, `available_stock`, `stock_in_quantity`, dan `stock_out_quantity`. Pagination invalid menghasilkan HTTP 422 dengan kode `REPORT_PAGINATION_INVALID`; validasi periode mengikuti kode dan format bersama laporan.
+
 ## 3. Business Rules
 
 ### Authentication and profile
@@ -191,7 +245,7 @@ Shipment hanya dibuat untuk order `processing` dengan payment `paid`; maksimal s
 
 ## 4. Planned, Partial, and Deferred
 
-Bagian ini bukan daftar endpoint yang tersedia. Tidak ada path, request schema, response schema, atau tanggal implementasi yang ditetapkan di sini untuk fitur yang belum memiliki route.
+Bagian ini bukan daftar endpoint yang tersedia. Endpoint yang dicantumkan sebagai **Planned** bukan route yang sudah terdaftar. Path tersebut tidak membuat klaim bahwa implementasi, request detail tambahan, atau response schema sudah tersedia.
 
 | Fitur | Status | Yang dapat dipastikan dari source saat ini |
 |---|---|---|
@@ -200,9 +254,37 @@ Bagian ini bukan daftar endpoint yang tersedia. Tidak ada path, request schema, 
 | Wishlist | Planned (M10) | Model/schema tersedia, tetapi API route wishlist tidak tersedia. |
 | Notifications | Planned (M10) | Model tersedia, tetapi API route notifications tidak tersedia. |
 | Inventory administration | Partial; advanced inventory planned (M10) | API khusus administrasi atau adjustment inventory belum tersedia. Admin dapat mengubah `stock_on_hand` melalui `PATCH /admin/products/:id`; setiap perubahan dicatat sebagai inventory movement secara atomik. `reserved_stock` tidak dapat diubah melalui parameter produk dan dikelola oleh lifecycle reservation. Reservation dan inventory movement tetap digunakan internal oleh alur transaksi, bukan melalui API inventory khusus. |
-| Dashboard and reports | Planned (M9, bagian penyelesaian MVP) | Endpoint dashboard/reports belum tersedia. Dashboard summary dan laporan operasional dasar direncanakan dalam M9 sebagai bagian penyelesaian MVP. Advanced analytics dan peningkatan ekspor laporan tetap berada di M10. |
+| Dashboard and reports | Partial (M9, bagian penyelesaian MVP) | `GET /admin/reports/dashboard`, `/sales`, `/orders`, `/products`, dan `/inventory` tersedia; Basic CSV Export hanya tersedia untuk sales, orders, dan products. Endpoint laporan operasional tambahan tidak otomatis termasuk deliverable M9. Advanced analytics dan peningkatan ekspor laporan tetap berada di M10. |
 
 `auth_sessions` ditunda sesuai keputusan proyek; pencabutan JWT memakai `jwt_revocations`. Ini tidak menambah endpoint session.
+
+### Additional report status
+
+Dashboard, Sales Report, Order Report, Product Report, Inventory Report, dan Basic CSV Export yang tersedia dijelaskan pada Bagian 2.11–2.16. Belum ada endpoint laporan tambahan yang dijadwalkan sebagai deliverable M9.
+
+#### Payments Report — Deferred
+
+Payments Report terpisah bukan bagian dari deliverable M9 saat ini. Endpoint `/admin/reports/payments` belum tersedia dan belum dijadwalkan untuk milestone berikutnya. Cakupan masa depan tetap terbuka berdasarkan kebutuhan produk.
+
+#### Sales Report JSON contract
+
+Sales Report memakai `from` dan `to` wajib dengan format ketat `YYYY-MM-DD`, periode inklusif maksimal 366 hari kalender WITA, dan `group_by` opsional (`day` default atau `month`). Tanggal kosong/invalid, rentang terbalik, dan rentang terlalu panjang menggunakan HTTP 422 serta kode periode yang sama dengan dashboard. Nilai `group_by` selain `day`/`month` menghasilkan HTTP 422 dalam envelope error API dengan kode `REPORT_GROUP_BY_INVALID`. Endpoint hanya dapat diakses admin.
+
+Response sukses menggunakan envelope JSON API dan berisi:
+- `period`: `from`, `to`, dan `timezone` (`Asia/Makassar`).
+- `group_by`: granularity yang dipakai.
+- `totals`: `orders_count`, `products_quantity`, `product_gross_amount`, `verified_payment_amount`, `processed_refund_amount`, dan `net_receipts_amount` untuk keseluruhan periode.
+- `series`: daftar bucket kronologis dengan keenam metrik yang sama. Key bucket harian berformat `YYYY-MM-DD`; bulanan `YYYY-MM`. Semua bucket kalender yang beririsan dengan rentang disertakan dengan nilai nol bila tidak ada aktivitas; tidak ada bucket kalender di luar rentang.
+
+Timestamp setiap metrik mengikuti sumber masing-masing: order memakai `orders.created_at`; payment dan produk memakai `payments.verified_at`; refund memakai `refunds.processed_at`. Payment `paid`/`refunded` dihitung dan `rejected` dikecualikan meskipun memiliki `verified_at`. Refund `processed` dikurangkan, sedangkan `pending`/`rejected` tidak. `product_gross_amount` berasal dari subtotal item tanpa ongkir; `verified_payment_amount` mencakup ongkir; refund tidak dialokasikan ke produk atau ongkir. `net_receipts_amount` = `verified_payment_amount - processed_refund_amount`. Total dihitung secara independen berdasarkan timestamp sumber tiap metrik, bukan dijumlahkan dari asumsi bahwa semua metrik memiliki tanggal kejadian yang sama.
+
+CSV bukan bagian dari M9-04. Basic CSV Export tersedia pada M9-07 untuk Sales, Orders, dan Products; ekspor Dashboard, Inventory, dan Payments tidak tersedia melalui endpoint ini. Peningkatan ekspor lanjutan tetap Planned untuk M10.
+
+Timezone bisnis laporan adalah `Asia/Makassar` (WITA, UTC+08:00); konfigurasi Rails dan batas filter dashboard mengikuti timezone ini sementara timestamp database tetap UTC. Dashboard saat ini mensyaratkan rentang khusus melalui `from` dan `to`. Preset periode cepat hari ini, 7 hari, dan 30 hari kalender belum tersedia pada endpoint lain yang masih direncanakan. Rentang khusus inklusif, maksimal 366 hari kalender; filter memakai interval `[awal hari from, awal hari setelah to)` WITA yang dikonversi ke timestamp penyimpanan UTC. Refund dipartisi berdasarkan `processed_at` dan dapat membuat penerimaan bersih suatu periode negatif.
+
+Penerimaan bruto menggunakan payment yang pernah berhasil diverifikasi dan berstatus `paid` atau `refunded`, berdasarkan `verified_at`; `verified_at` tanpa pemeriksaan status tidak cukup karena payment rejected juga dapat memiliki timestamp tersebut. Refund yang mengurangi penerimaan hanya berstatus `processed`, berdasarkan `processed_at`; pending/rejected dikecualikan. **Penerimaan Bersih** = total payment terverifikasi - total refund `processed`. Nilai payment mencakup subtotal, diskon, dan ongkir. Refund tidak dialokasikan ke produk atau ongkir. Produk memakai kuantitas/subtotal bruto item dari order dengan payment terverifikasi, refund terpisah; laporan order menggunakan `created_at` dan status terkini. Inventory membedakan `stock_on_hand`, `reserved_stock`, stok tersedia (`stock_on_hand - reserved_stock`), dan pergerakan fisik `stock_in`/`stock_out`; reservation/release bukan pergerakan fisik. Snapshot hanya menunjukkan keadaan saat laporan diminta.
+
+CSV memakai nilai rupiah integer, timestamp ISO 8601 dengan zona waktu bila timestamp menjadi kolom, quoting standar, BOM UTF-8, dan netralisasi formula injection. Ekspor tidak memuat nama/email/telepon/alamat pelanggan, bukti pembayaran, token, atau referensi transfer. Kontrak Basic CSV Export yang tersedia dijelaskan pada Bagian 2.15.
 
 ## 5. Implementation Notes
 

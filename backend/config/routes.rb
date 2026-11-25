@@ -36,6 +36,12 @@ Rails.application.routes.draw do
   get "/customer/orders/:order_id/payment-proofs/:proof_id", to: "payments#proof"
 
   namespace :admin do
+    get "/reports/:report.csv", to: "reports#export"
+    get "/reports/dashboard", to: "reports#dashboard"
+    get "/reports/sales", to: "reports#sales"
+    get "/reports/orders", to: "reports#orders"
+    get "/reports/products", to: "reports#products"
+    get "/reports/inventory", to: "reports#inventory"
     get "/orders", to: "orders#index"
     get "/orders/:id", to: "orders#show"
     post "/orders/:order_id/shipments", to: "shipments#create"

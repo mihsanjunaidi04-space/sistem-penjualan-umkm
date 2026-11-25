@@ -149,6 +149,25 @@ Bukti transfer yang diunggah bukan bukti dana telah diterima. Hanya verifikasi a
 - Pembuatan, pemrosesan, dan penolakan refund dicatat dalam AuditLog. Refund tidak mengubah status order atau stok secara otomatis.
 - Barang yang telah dikirim tidak otomatis menambah stok ketika refund dilakukan. Pengembalian stok memerlukan proses retur dan verifikasi barang tersendiri.
 
+### 6.7 Dashboard dan laporan dasar M9
+
+- Timezone bisnis untuk kalender laporan adalah `Asia/Makassar` (WITA, UTC+08:00), dan sudah diterapkan sebagai business timezone Rails. ActiveRecord tetap menyimpan timestamp dalam UTC; filter tanggal dikonversi dari batas kalender WITA ke timestamp UTC.
+- Periode cepat adalah hari ini, 7 hari kalender terakhir termasuk hari ini, dan 30 hari kalender terakhir termasuk hari ini. Rentang khusus memakai tanggal awal dan akhir inklusif, maksimal 366 hari kalender. Query memakai interval `[awal hari from, awal hari setelah to)` dalam WITA. Respons dan ekspor menyatakan timezone yang digunakan.
+- Jumlah order dibuat memakai `orders.created_at`. Laporan order menampilkan status terkini; histori status order pada tanggal lampau tidak termasuk M9.
+- Pembayaran terverifikasi dihitung dari payment yang pernah berhasil diverifikasi dan berstatus `paid` atau `refunded`, berdasarkan `payments.verified_at`. `verified_at` saja tidak cukup karena payment yang ditolak juga dapat memiliki timestamp tersebut.
+- Refund yang mengurangi penerimaan hanya refund berstatus `processed`, berdasarkan `refunds.processed_at`. Refund `pending` dan `rejected` tidak mengurangi penerimaan. Laporan refund per periode dapat bernilai negatif jika refund yang diproses pada periode itu melebihi penerimaan pada periode yang sama; ini bukan kesalahan perhitungan.
+- Penerimaan bersih = total payment terverifikasi dikurangi total refund `processed`. Nilai payment mencakup subtotal, diskon, dan ongkir sesuai total order. Metrik disebut **Penerimaan Bersih**, bukan pendapatan produk. Refund tidak dialokasikan ke produk atau ongkir.
+- Sales Report M9-04 adalah endpoint JSON admin-only dengan parameter wajib `from` dan `to` berformat `YYYY-MM-DD`, serta `group_by=day|month` dengan default `day`. Nilai `group_by` lain ditolak dengan HTTP 422 dan error laporan yang sesuai.
+- Pengelompokan Sales Report memakai kalender WITA. Order dikelompokkan berdasarkan `orders.created_at`; payment terverifikasi dan item produk berdasarkan `payments.verified_at`; refund berdasarkan `refunds.processed_at`. Setiap metrik mempertahankan timestamp sumbernya sendiri.
+- Sales Report memisahkan `orders_count`, `products_quantity`, `product_gross_amount`, `verified_payment_amount`, `processed_refund_amount`, dan `net_receipts_amount`. Nilai produk adalah subtotal bruto tanpa ongkir; payment mencakup ongkir; refund tidak dialokasikan ke produk atau ongkir. `net_receipts_amount` = `verified_payment_amount - processed_refund_amount`.
+- Response Sales Report memiliki `totals` untuk seluruh periode dan `series` untuk bucket `day` (`YYYY-MM-DD`) atau `month` (`YYYY-MM`). Total dihitung independen menurut timestamp masing-masing metrik. Semua bucket yang beririsan dengan rentang harus hadir, kronologis, tanpa bucket di luar periode, dan bernilai numerik nol jika tidak ada aktivitas.
+- M9-04 menyediakan Sales Report dalam JSON saja; ekspor CSV bukan bagian dari endpoint Sales Report tersebut. Basic CSV Export tersedia sebagai M9-07 dengan cakupan sesuai kontrak `docs/API_DOCUMENTATION.md`. Peningkatan ekspor di luar cakupan dasar dapat menjadi pekerjaan berikutnya.
+- Laporan produk menghitung kuantitas dan subtotal item dari order dengan payment yang pernah terverifikasi (`paid` atau `refunded`). Nilai bruto item dan total refund ditampilkan terpisah; angka produk bukan penerimaan bersih dan refund tidak dialokasikan ke produk tertentu.
+- Dashboard dasar menampilkan jumlah order dibuat, total payment terverifikasi, total refund diproses, penerimaan bersih, kuantitas dan nilai bruto produk terjual, serta snapshot stok fisik, reserved, dan tersedia.
+- `stock_on_hand` adalah stok fisik; `reserved_stock` adalah stok yang dicadangkan; stok tersedia = `stock_on_hand - reserved_stock`. Pergerakan fisik memakai `stock_in` dan `stock_out`. `reservation` dan `reservation_release` bukan stock-in/out, bukan penjualan, dan bukan perubahan stok fisik. Snapshot stok menunjukkan kondisi saat laporan diakses, bukan histori tanggal lampau.
+- Agregasi payment dan refund dilakukan terpisah sebelum digabung dengan order items untuk mencegah double counting.
+- Ekspor CSV hanya untuk admin dan hanya memuat data laporan yang diperlukan. Nama, email, nomor telepon, alamat pelanggan, bukti pembayaran, dan referensi transfer tidak diekspor. Nilai rupiah berupa integer; timestamp ISO 8601 dengan zona waktu jelas; CSV memakai quoting standar dan BOM UTF-8. Teks yang diawali `=`, `+`, `-`, `@`, tab, atau karakter baris baru dinetralkan untuk mencegah formula injection.
+
 ## 7. Aturan status
 
 ### Order
@@ -263,7 +282,7 @@ Status setiap entitas dipisahkan. Status tidak boleh diubah bebas melalui endpoi
 - Payment menjadi `refunded` hanya setelah refund `processed` mencapai seluruh jumlah payment.
 - Bukti pembayaran tidak dapat diakses publik.
 - Scheduled job aman dijalankan berulang.
-- Laporan membedakan pembayaran terverifikasi, refund, dan pendapatan bersih.
+- Laporan membedakan pembayaran terverifikasi, refund, dan penerimaan bersih sesuai aturan M9.
 
 ## 11. Asumsi dan keputusan yang perlu dikonfirmasi
 
